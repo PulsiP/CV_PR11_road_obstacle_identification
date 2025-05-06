@@ -1,1 +1,1 @@
-# CV_PR11_road-_obstacle_identification
+# CV_PR11_road_obstacle_identification
