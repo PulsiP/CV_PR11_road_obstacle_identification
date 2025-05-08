@@ -6,6 +6,8 @@ sudo apt update
 sudo apt upgrade
 sudo apt install git gh -y
 
+OS_NAME="$(uname)"
+
 # Python (via conda)
 CONDA_DIR=~/miniconda3
 if [ ! -d "$CONDA_DIR" ]; then
@@ -26,7 +28,13 @@ conda init --all
 ENV=~/miniconda3/envs/Vision
 
 if [[ ! -d $ENV  ]]; then
-	conda create -n Vision python=3.13.2 # latest release
+	if [[ "$OS_NAME" == "Darwin" ]]; then
+		conda create -n Vision python=3.12y # latest release compatible for MAC_OS
+	elif [[ "$OS_NAME" == "Linux" ]]; then
+		conda create -n Vision python=3.13.2 # latest release compatible for Linux
+	else
+		echo "Sistema operativo non riconosciuto: $OS_NAME"
+	fi
 fi
 
 # activate environment
@@ -43,11 +51,22 @@ pip3 install opencv-python
 # install ml tools (and torch system)
 echo '[installing Torch and Torch tools]'
 nvidia-smi >> /dev/null
-if [[ -x "$(command -v nvidia-smi)" ]] ; then
-	pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126 #require install giga-byte
+
+if [[ "$OS_NAME" == "Darwin" ]]; then
+	echo '[Installing in MAC OS]'
+	pip3 install torch torchvision torchaudio
+
+elif [[ "$OS_NAME" == "Linux" ]]; then
+
+	if [[ -x "$(command -v nvidia-smi)" ]] ; then
+		pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126 #require install giga-byte
+	else
+		pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+	fi	
+	
 else
-	pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-fi	
+    echo "Sistema operativo non riconosciuto: $OS_NAME"
+fi
 
 pip3 install torchmetrics
 
