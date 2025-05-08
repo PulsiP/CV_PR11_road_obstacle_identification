@@ -13,11 +13,7 @@ if [ ! -d "$CONDA_DIR" ]; then
 	mkdir -p ~/miniconda3
 	wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda3/miniconda.sh
 	bash ~/miniconda3/miniconda.sh -b -u -p ~/miniconda3
-	rm ~/miniconda3/miniconda.sh
-	
-	
-
-	
+	rm ~/miniconda3/miniconda.sh	
 else
 	echo "[Conda just installed, SKIP]"
 fi
@@ -43,6 +39,7 @@ pip3 install scipy numpy pandas pytest
 pip3 install matplotlib wandb
 pip3 install seaborn
 pip3 install datasets
+pip3 install opencv-python
 # install ml tools (and torch system)
 echo '[installing Torch and Torch tools]'
 nvidia-smi >> /dev/null
@@ -53,3 +50,6 @@ else
 fi	
 
 pip3 install torchmetrics
+
+
+
