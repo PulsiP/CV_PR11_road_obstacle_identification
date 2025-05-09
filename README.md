@@ -14,6 +14,5 @@ The aim of this project is to develop a general, model-agnostic framework for ro
 ## Project Links
 
 * [Google Drive](https://drive.google.com/drive/folders/1v5ReEkvZz2Ztikob-fOPOXxqr4hAw8c5?usp=sharing)
-* [Notion]()
-
-* [Datasets]()
+* [Notion](https://www.notion.so/PR11-Uncertainty-Aware-Road-Obstacle-Identification-1ed162539edf80dd917dd24f1e090800?pvs=4)
+* [Datasets](https://www.kaggle.com/datasets/shuvoalok/cityscapes)
