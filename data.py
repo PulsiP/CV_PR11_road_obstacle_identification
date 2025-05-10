@@ -12,7 +12,6 @@ from numpy import ndarray
 from torch.utils.data import Dataset
 from torchvision.transforms.v2 import Compose
 
-
 class DatasetFactory:
     def __init__(self, out_dir:Path|str) -> None:
         self.out_dir = Path(out_dir)
@@ -69,7 +68,7 @@ class CSDataset(Dataset):
             └── label/
     """
 
-    def __init__(self, dataset_path:Path, transform:Compose|None = None):
+    def __init__(self, dataset_path:Path|str, transform_x:Compose|None = None, transform_y:Compose|None = None):
 
         """
         
@@ -77,12 +76,13 @@ class CSDataset(Dataset):
 
             ...
         """
-        self.base_path = dataset_path
+        self.base_path = Path(dataset_path)
 
         if not self.base_path.exists():
             raise FileNotFoundError()
         
-        self.transform = transform
+        self.transform_x = transform_x 
+        self.transform_y = transform_y
         self._x = list(self.base_path.joinpath("img").glob("*.png"))
         self._y = list(self.base_path.joinpath("label").glob("*.png"))
         self._label  = [path.stem for path in self._x]
@@ -94,13 +94,15 @@ class CSDataset(Dataset):
     
     @override
     def __getitem__(self, index) -> Tuple[ndarray, ndarray, int]:
-        x = cv.cvtColor(cv.imread(self._x[index]), cv.COLOR_BGR2RGB)
-        y = cv.cvtColor(cv.imread(self._y[index]), cv.COLOR_BGR2RGB)
+        x = cv.imread(self._x[index])
+        y = cv.imread(self._y[index])
         l = self._label[index]
 
-        if self.transform:
-            x = self.transform(x)
-            y = self.transform(y)
+        if self.transform_x:
+            x = self.transform_x(x)
+        
+        if self.transform_y:
+            y = self.transform_y(y)
 
         return (x, y, l)
     
@@ -108,12 +110,8 @@ class CSDataset(Dataset):
 if __name__ == "__main__":
 
     import matplotlib.pyplot as plt
-    builder = DatasetFactory("LDataset")
-    builder.produce("Dataset_full/imgs/val", "Dataset_full/label/val", 'val')
-    builder.produce("Dataset_full/imgs/train", "Dataset_full/label/train", 'train')
-    exit(0)
 
-    path = Path("./dataset/train")
+    path = Path("./Dataset/train")
     d = CSDataset(path)
 
     i = 0
