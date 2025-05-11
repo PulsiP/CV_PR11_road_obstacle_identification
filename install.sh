@@ -33,7 +33,7 @@ if [[ ! -d $ENV  ]]; then
 	elif [[ "$OS_NAME" == "Linux" ]]; then
 		conda create -n Vision python=3.13.2 # latest release compatible for Linux
 	else
-		echo "Sistema operativo non riconosciuto: $OS_NAME"
+		echo "Un-know system: $OS_NAME"
 	fi
 fi
 
@@ -65,7 +65,7 @@ elif [[ "$OS_NAME" == "Linux" ]]; then
 	fi	
 	
 else
-    echo "Sistema operativo non riconosciuto: $OS_NAME"
+    echo "Un-know system: $OS_NAME"
 fi
 
 pip3 install torchmetrics
