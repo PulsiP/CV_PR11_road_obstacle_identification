@@ -250,14 +250,14 @@ class TrainNetwork:
 
 if __name__ == "__main__":
     from torchvision.transforms import v2
-
+    from utils import ToMask
     # TODO: add normalization for input images
     data_train = CSDataset(
         "Dataset/train",
         transform_x=v2.Compose(
             [v2.ToImage(), v2.ToDtype(dtype=torch.float32, scale=True)]
         ),
-        transform_y=v2.Compose([ToMasck(0, 255)]),
+        transform_y=v2.Compose([ToMask(0, 20)])
     )
 
     data_test = CSDataset(
@@ -265,9 +265,9 @@ if __name__ == "__main__":
         transform_x=v2.Compose(
             [v2.ToImage(), v2.ToDtype(dtype=torch.float32, scale=True)]
         ),
-        transform_y=v2.Compose([ToMasck(0, 255)]),
+        transform_y=v2.Compose([ToMask(0, 20)])
     )
-    param = FCNParams(256)
+    param = FCNParams(21)
     model = FCN(param)
 
     hyper_parameters = {

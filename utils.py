@@ -10,9 +10,9 @@ from torchvision.transforms.v2 import Grayscale
 from typing import override
 
 
-class ToMasck(nn.Module):
+class ToMask(nn.Module):
     def __init__(self, low: int, high: int) -> None:
-        super(ToMasck, self).__init__()
+        super(ToMask, self).__init__()
         self.low = low
         self.high = high
 
