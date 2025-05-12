@@ -18,23 +18,26 @@ from globals import CITYSCAPES_RGB
 
 
 class ToMask(nn.Module):
-    def __init__(self):
+    def __init__(self, size):
         super().__init__()
         unique_colors = list(CITYSCAPES_RGB.keys())
         self.color2id = {color: idx for idx, color in enumerate(unique_colors)}
         self.valid_classes = set(CITYSCAPES_RGB.values())
+        self.size =size
 
     def forward(self, x: np.ndarray) -> torch.Tensor:
         """
         Converte immagine RGB [H, W, 3] in maschera [1, H, W] con classi numeriche.
         Pixel con colori non riconosciuti vengono assegnati a classe 0 (fallback).
         """
+
+        x = cv.resize(x, dsize=self.size)
         h, w, _ = x.shape
         mask = np.full((h, w), fill_value=0, dtype=np.uint8)
-        print("Mappatura colore → class_id usata:")
+        #print("Mappatura colore → class_id usata:")
 
         for color, class_id in self.color2id.items():
-            print(f"  {color} → {class_id}")
+            #print(f"  {color} → {class_id}")
             match = np.all(x == color, axis=-1)
             mask[match] = class_id
 
