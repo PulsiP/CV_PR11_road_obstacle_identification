@@ -258,17 +258,17 @@ if __name__ == "__main__":
     data_train = CSDataset(
         "Dataset/train",
         transform_x=v2.Compose(
-            [v2.ToImage(), v2.ToDtype(dtype=torch.float32, scale=True)]
+            [v2.ToImage(), v2.ToDtype(dtype=torch.float32, scale=True), v2.Resize((256, 96))]
         ),
-        transform_y = v2.Compose([ToMask()])
+        transform_y=v2.Compose([ToMask(0, 20, (256, 96))])
     )
 
     data_test = CSDataset(
         "Dataset/val",
         transform_x=v2.Compose(
-            [v2.ToImage(), v2.ToDtype(dtype=torch.float32, scale=True)]
+            [v2.ToImage(), v2.ToDtype(dtype=torch.float32, scale=True), v2.Resize((256, 96))]
         ),
-        transform_y = v2.Compose([ToMask()])
+        transform_y=v2.Compose([ToMask(0, 20, (256, 96))])
     )
     param = FCNParams(len(CITYSCAPES_RGB))
     model = FCN(param)
@@ -279,4 +279,4 @@ if __name__ == "__main__":
     }
 
     trainer = TrainNetwork(hyper_parameters, model)
-    m, _, _ = trainer.train(data_train, data_test, "./FCN", epochs=10, batch_size=64)
+    m, _, _ = trainer.train(data_train, data_test, "./FCN", epochs=10, batch_size=16)

@@ -30,8 +30,8 @@ class DatasetFactory:
 
         """
         src_img_dir = Path(src_img_dir)
-        src_label_dir = Path(src_label_dir)
-        base_dir = self.out_dir.joinpath(split)
+        src_label_dir = Path(src_label_dir) 
+        base_dir = self.out_dir.joinpath(split) 
 
         img_path = base_dir.joinpath("img")
         label_path = base_dir.joinpath("label")
@@ -93,7 +93,7 @@ class CSDataset(Dataset):
         self._x = list(self.base_path.joinpath("img").glob("*.png"))
         self._y = list(self.base_path.joinpath("label").glob("*.png"))
         self._label = [path.stem for path in self._x]
-
+        
     def __len__(self):
         return len(self._label)
 
