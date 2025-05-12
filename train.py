@@ -13,7 +13,8 @@ from torchmetrics.segmentation import DiceScore
 from tqdm.auto import tqdm
 from data import CSDataset
 from network import FCN, FCNParams
-from utils import ToMasck, show_tensor
+from utils import ToMask, show_tensor
+from globals import CITYSCAPES_RGB
 
 
 from matplotlib import pyplot as plt
@@ -67,6 +68,8 @@ class TrainNetwork:
 
             self._optimizer.zero_grad()
             y_pred = model(x)
+            print("y unique:", torch.unique(y))
+
 
             loss = loss_fn(y_pred, y)
             loss_v = loss.item()
@@ -257,7 +260,7 @@ if __name__ == "__main__":
         transform_x=v2.Compose(
             [v2.ToImage(), v2.ToDtype(dtype=torch.float32, scale=True)]
         ),
-        transform_y=v2.Compose([ToMask(0, 20)])
+        transform_y = v2.Compose([ToMask()])
     )
 
     data_test = CSDataset(
@@ -265,9 +268,9 @@ if __name__ == "__main__":
         transform_x=v2.Compose(
             [v2.ToImage(), v2.ToDtype(dtype=torch.float32, scale=True)]
         ),
-        transform_y=v2.Compose([ToMask(0, 20)])
+        transform_y = v2.Compose([ToMask()])
     )
-    param = FCNParams(21)
+    param = FCNParams(len(CITYSCAPES_RGB))
     model = FCN(param)
 
     hyper_parameters = {
