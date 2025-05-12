@@ -11,10 +11,11 @@ from typing import override
 
 
 class ToMask(nn.Module):
-    def __init__(self, low: int, high: int) -> None:
+    def __init__(self, low: int, high: int, default_size:tuple[int, int]) -> None:
         super(ToMask, self).__init__()
         self.low = low
         self.high = high
+        self.size = default_size
 
     @override
     def forward(self, x):
@@ -25,6 +26,7 @@ class ToMask(nn.Module):
         # TODO: Il metodo prende in input un tensore e/o un'immagine RGB e viene convertita in una maschera numerica (un canale)
         #       di valori per le varie classi di segmento
         x = cv.cvtColor(x, code=cv.COLOR_RGB2GRAY)
+        x = cv.resize(x, self.size)
         x = torch.as_tensor(x, dtype=torch.long)
         x = torch.clamp(x, min=self.low, max=self.high)
 
