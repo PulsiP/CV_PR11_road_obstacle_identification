@@ -5,48 +5,68 @@ Utility module
 import torch
 import cv2 as cv
 import matplotlib.pyplot as plt
-from torch import nn
-from torchvision.transforms.v2 import Grayscale
-from typing import override
-
-
 import numpy as np
-import torch
-import matplotlib.pyplot as plt
-from torch import nn
-from globals import CITYSCAPES_RGB
 
+from torch import nn
+from typing import override
+from torch import nn
 
 class ToMask(nn.Module):
-    def __init__(self, size):
+    """
+    Class use to preprocess RGB-Mask for segmentation tasck
+    """
+    def __init__(self, map_, size):
         super().__init__()
-        unique_colors = list(CITYSCAPES_RGB.keys())
-        self.color2id = {color: idx for idx, color in enumerate(unique_colors)}
-        self.valid_classes = set(CITYSCAPES_RGB.values())
-        self.size =size
 
-    def forward(self, x: np.ndarray) -> torch.Tensor:
+        self.map_ = map_
+        self.size = size
+
+    def forward(self, x):
         """
         Converte immagine RGB [H, W, 3] in maschera [1, H, W] con classi numeriche.
         Pixel con colori non riconosciuti vengono assegnati a classe 0 (fallback).
         """
 
         x = cv.resize(x, dsize=self.size)
-        h, w, _ = x.shape
-        mask = np.full((h, w), fill_value=0, dtype=np.uint8)
-        #print("Mappatura colore → class_id usata:")
+        x = image2Map(self.map_, x)
+        x = torch.as_tensor(x, dtype=torch.long).unsqueeze(0)
 
-        for color, class_id in self.color2id.items():
-            #print(f"  {color} → {class_id}")
-            match = np.all(x == color, axis=-1)
-            mask[match] = class_id
-
-        return torch.from_numpy(mask).long().unsqueeze(0)
-
-
-
+        return x
+    
 def show_tensor(tensor: torch.Tensor, cmap: str = "gray") -> None:
-    """ """
+    """ get Image-Tensor ans show it"""
     t = tensor.numpy(force=True).transpose((1, 2, 0))
     plt.imshow(t, cmap=cmap)
     plt.show()
+
+
+def image2Map(map_, x, fill=255):
+    """
+    Convert RGB Image in Quantizited Image using Quantization Table `map_`
+    Unquantizited values will map with 255 (unknow by default)
+    """
+    h, w, _ = x.shape
+    mask = np.full((h, w), fill_value=fill, dtype=np.uint8)
+
+    for color, class_id in map_.items():
+        #print(f"  {color} → {class_id}")
+        match = np.all(x == color, axis=-1)
+        mask[match] = class_id
+
+    return mask
+
+
+def map2Image(map_, x) -> np.ndarray:
+    """ Map quantizited Image in RGB Image """
+    mask = np.full((x.shape[0], x.shape[1], 3), fill_value=0, dtype=np.uint8)
+    # print("Mappatura colore → class_id usata:")
+
+    for class_id, color in map_.items():
+        #print(f" {class_id} -> {color}")
+        # print(f"  {color} → {class_id}")
+
+        match = x == class_id
+
+        mask[match] = color
+
+    return mask

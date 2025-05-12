@@ -13,8 +13,8 @@ from torchmetrics.segmentation import DiceScore
 from tqdm.auto import tqdm
 from data import CSDataset
 from network import FCN, FCNParams
-from utils import ToMask, show_tensor
-from globals import CITYSCAPES_RGB
+from utils import ToMask, show_tensor, map2Image
+from globals import CS_LABEL2COLOR, CS_COLOR2LABEL
 
 
 from matplotlib import pyplot as plt
@@ -204,6 +204,7 @@ class TrainNetwork:
                 log_eval,
                 len(validation_set),
             )
+            
 
             # save best weigths in agreement with objective value
             if len(log_eval["epoch"]) < 2 or (
@@ -229,6 +230,9 @@ class TrainNetwork:
                 y_pred = model(x).argmax(dim=1).cpu().numpy().squeeze(0)
                 y = y.cpu().squeeze(0).numpy()
 
+                y_pred = map2Image(CS_LABEL2COLOR, y_pred)
+                y = map2Image(CS_LABEL2COLOR, y)
+                
                 result = np.hstack((y, y_pred))
                 plt.imsave(f"{log_dir}/result_epoch_{epoch}.png", result, cmap="gray")
 
@@ -258,7 +262,7 @@ if __name__ == "__main__":
         transform_x=v2.Compose(
             [v2.ToImage(), v2.ToDtype(dtype=torch.float32, scale=True), v2.Resize((256, 96))]
         ),
-        transform_y=v2.Compose([ToMask((256, 96))])
+        transform_y=v2.Compose([ToMask(CS_COLOR2LABEL,(256, 96))])
     )
 
     data_test = CSDataset(
@@ -266,14 +270,14 @@ if __name__ == "__main__":
         transform_x=v2.Compose(
             [v2.ToImage(), v2.ToDtype(dtype=torch.float32, scale=True), v2.Resize((256, 96))]
         ),
-        transform_y=v2.Compose([ ToMask((256, 96)) ])
+        transform_y=v2.Compose([ ToMask(CS_COLOR2LABEL, (256, 96)) ])
     )
-    param = FCNParams(len(CITYSCAPES_RGB))
+    param = FCNParams(20)
     model = FCN(param)
 
     hyper_parameters = {
-        "loss": nn.CrossEntropyLoss(),
-        "optimizer": torch.optim.Adamax(model.parameters()),
+        "loss": nn.CrossEntropyLoss(ignore_index=255),
+        "optimizer": torch.optim.Adam(model.parameters()),
     }
 
     trainer = TrainNetwork(hyper_parameters, model)

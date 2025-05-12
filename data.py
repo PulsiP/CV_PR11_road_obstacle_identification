@@ -99,8 +99,8 @@ class CSDataset(Dataset):
 
     @override
     def __getitem__(self, index) -> Tuple[ndarray, ndarray, int]:
-        x = cv.imread(self._x[index])
-        y = cv.imread(self._y[index])
+        x = cv.cvtColor(cv.imread(self._x[index]), cv.COLOR_BGR2RGB)
+        y = cv.cvtColor(cv.imread(self._y[index]), cv.COLOR_BGR2RGB)
         l = self._label[index]
 
         if self.transform_x:
