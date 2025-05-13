@@ -40,10 +40,10 @@ def show_tensor(tensor: torch.Tensor, cmap: str = "gray") -> None:
     plt.show()
 
 
-def image2Map(map_, x, fill=255):
+def image2Map(map_, x, fill=20):
     """
     Convert RGB Image in Quantizited Image using Quantization Table `map_`
-    Unquantizited values will map with 255 (unknow by default)
+    Unquantizited values will map with 20 (unknow by default)
     """
     h, w, _ = x.shape
     mask = np.full((h, w), fill_value=fill, dtype=np.uint8)
