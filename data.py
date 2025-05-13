@@ -94,6 +94,12 @@ class CSDataset(Dataset):
         self._y = list(self.base_path.joinpath("label").glob("*.png"))
         self._label = [path.stem for path in self._x]
         
+        self._x = sorted(self._x, key=lambda path: path.stem)
+        self._y = sorted(self._y, key=lambda path: path.stem)
+        self._label.sort()
+        
+
+        
     def __len__(self):
         return len(self._label)
 
@@ -113,4 +119,6 @@ class CSDataset(Dataset):
 
 
 if __name__ == "__main__":
-    pass
+    d = CSDataset('./Dataset/train')
+    for (x,y,l) in d:
+        pass
