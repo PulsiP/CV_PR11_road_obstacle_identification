@@ -20,7 +20,7 @@ class DatasetFactory:
 
     def produce(
         self, src_img_dir: Path | str, src_label_dir: Path | str, split: Path | str
-    ) -> None:
+    , copy_size:tuple[int,int]|None = None) -> None:
         """
         Costruisce un nuovo dataset a partire dalla struttura base del dataset Cityscape nella forma
 
@@ -46,8 +46,12 @@ class DatasetFactory:
                 idds = att[0]
 
                 nn = ids + idds + file_.suffix
-
-                shutil.copy2(file_, img_path.joinpath(nn))
+                if copy_size:
+                    image = cv.imread(file_, cv.IMREAD_COLOR_RGB)
+                    image = cv.resize(image, copy_size, interpolation=4)
+                    cv.imwrite(img_path.joinpath(nn), image)
+                else:    
+                    shutil.copy2(file_, img_path.joinpath(nn))
 
         for dir_ in src_label_dir.iterdir():
             for file_ in dir_.glob("*color.png"):
@@ -56,7 +60,13 @@ class DatasetFactory:
                 idds = att[0]
                 nn = ids + idds + file_.suffix
 
-                shutil.copy2(file_, label_path.joinpath(nn))
+                if copy_size:
+                    image = cv.imread(file_, cv.IMREAD_COLOR_RGB)
+                    image = cv.resize(image, copy_size, interpolation=4)
+                    cv.imwrite(img_path.joinpath(nn), image)
+                     
+                else:
+                    shutil.copy2(file_, label_path.joinpath(nn))
 
         return None
 

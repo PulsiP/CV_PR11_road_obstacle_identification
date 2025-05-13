@@ -48,6 +48,7 @@ pip3 install matplotlib wandb
 pip3 install seaborn
 pip3 install datasets
 pip3 install opencv-python
+pip3 install rich tqdm
 # install ml tools (and torch system)
 echo '[installing Torch and Torch tools]'
 nvidia-smi >> /dev/null
@@ -69,6 +70,7 @@ else
 fi
 
 pip3 install torchmetrics
+pip3 install segmentation_models_pytorch
 
 
 
