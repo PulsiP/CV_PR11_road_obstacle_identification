@@ -47,7 +47,7 @@ class DatasetFactory:
 
                 nn = ids + idds + file_.suffix
                 if copy_size:
-                    image = cv.imread(file_, cv.IMREAD_COLOR_RGB)
+                    image = cv.imread(file_)
                     image = cv.resize(image, copy_size, interpolation=4)
                     cv.imwrite(img_path.joinpath(nn), image)
                 else:    
@@ -61,9 +61,9 @@ class DatasetFactory:
                 nn = ids + idds + file_.suffix
 
                 if copy_size:
-                    image = cv.imread(file_, cv.IMREAD_COLOR_RGB)
+                    image = cv.imread(file_)
                     image = cv.resize(image, copy_size, interpolation=4)
-                    cv.imwrite(img_path.joinpath(nn), image)
+                    cv.imwrite(label_path.joinpath(nn), image)
                      
                 else:
                     shutil.copy2(file_, label_path.joinpath(nn))

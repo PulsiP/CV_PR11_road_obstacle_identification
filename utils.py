@@ -7,7 +7,7 @@ import pandas as pd
 import torch
 import numpy as np
 import os
-
+import matplotlib
 from typing import Any
 from typing import override
 from pathlib import Path
@@ -53,7 +53,7 @@ class TrainNetwork:
     configurati
     """
 
-    def __init__(self, hp: dict[str, Any], model: nn.Module, dice_num_classes:int=21) -> None:
+    def __init__(self, hp: dict[str, Any], model: nn.Module, dice_num_classes:int=21, lr_scheduler = None) -> None:
         """
         Inizializza il trainer
         """
@@ -61,6 +61,7 @@ class TrainNetwork:
         self._loss: nn.Module = hp["loss"]
         self._optimizer: Optimizer = hp["optimizer"]
         self.dice = DiceScore(num_classes=dice_num_classes, average='macro')
+        self._lr_scheduler = lr_scheduler
 
     def __train(
         self, dataloader_train, model, epoch, loss_fn, device, log_train, train_size
@@ -76,7 +77,7 @@ class TrainNetwork:
             desc="training", total=train_size  # type: ignore
         )  # uses len(dataset) instead of dataset.size
 
-        bar.set_postfix({"batch": 0, "loss": 0, "diceScore": 0.0})
+        bar.set_postfix({"batch": 0, "loss": 0, "diceScore": 0.0, 'lr': self._optimizer.param_groups[0]['lr']})
         self.dice.reset()
         dice_value = 0
         for x, y, _ in dataloader_train:
@@ -103,7 +104,8 @@ class TrainNetwork:
                 {
                     "batch": batch,
                     "loss": epoch_loss / batch,
-                    "diceScore": dice_value.numpy(force=True) / batch
+                    "diceScore": dice_value.numpy(force=True) / batch,
+                    'lr': self._optimizer.param_groups[0]['lr']
                 }
             )
             bar.update(batch_len)
@@ -112,6 +114,7 @@ class TrainNetwork:
         log_train["epoch"].append(epoch)
         log_train["loss"].append(epoch_loss / batch)
         log_train["diceScore"].append(self.dice.compute().numpy(force=True))
+        log_train["lr"].append(self._optimizer.param_groups[0]['lr'])
         return log_train
 
     def __eval(
@@ -170,6 +173,7 @@ class TrainNetwork:
         log_eval["epoch"].append(epoch)
         log_eval["loss"].append(epoch_loss / batch)
         log_eval["diceScore"].append(self.dice.compute().numpy(force=True))
+        log_eval["lr"].append(0)
 
         return log_eval
 
@@ -218,13 +222,15 @@ class TrainNetwork:
         log_train = {
             "epoch"    : [],
             "loss"     : [],
-            "diceScore": []
+            "diceScore": [],
+            "lr"       : [],
         }
 
         log_eval = {
             "epoch"     : [],
             "loss"      : [],
-            "diceScore" : []
+            "diceScore" : [],
+            "lr"        : []   
         }
 
         model = self._model.to(device)
@@ -250,6 +256,9 @@ class TrainNetwork:
                 len(validation_set),
             )
 
+            if self._lr_scheduler:
+                self._lr_scheduler.step()
+
             print(f"\n==END EPOCH {epoch}==\n")
 
             # save best weigths in agreement with objective value
@@ -274,7 +283,7 @@ class TrainNetwork:
             model.eval()
             with torch.no_grad():
 
-                x, y, _ = validation_set[0]
+                x, y, _ = validation_set[5]
                 x = x.unsqueeze(0).to(device)
 
                 y_pred = model(x).argmax(dim=1).cpu().numpy().squeeze(0)
@@ -382,6 +391,7 @@ def resize(src_dir: Path | str, out_dir: Path | str, split: Path | str, size:tup
             cv.imwrite(out_label_path.joinpath(file_.name), image)
 
 def plot_report(log_file_train:Path|str, log_file_valid:Path|str, out_dir:Path|str = "."):
+    matplotlib.use("PDF")
     log_file_train = Path(log_file_train)
     log_file_valid = Path(log_file_valid)
     out_dir = Path(out_dir)

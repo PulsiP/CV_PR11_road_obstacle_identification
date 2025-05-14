@@ -1,4 +1,6 @@
 import abc
+import segmentation_models_pytorch as smp
+import torch.nn.functional as F
 from torch import nn
 from torchvision import models
 from typing import override
@@ -59,6 +61,16 @@ class RNParams(BaseParams):
         super().__init__()
         self.num_classes = num_classes
 
+class UnetPlusPlus(nn.Module):
+    def __init__(self, output_classes):
+        super(UnetPlusPlus, self).__init__()
+        self.backbone = smp.UnetPlusPlus(classes=output_classes)
+    
+    @override
+    def forward(self, x):
+        x = self.backbone(x)
+        x = F.softmax(x, dim=1)
+        return x
 
 class ResNetSegmentation(nn.Module):
     """
