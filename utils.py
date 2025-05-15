@@ -2,35 +2,35 @@
 Utility module
 """
 
+import os
+from collections import OrderedDict
+from pathlib import Path
+from random import randint
+from typing import Any, override
+
 import cv2 as cv
+import matplotlib
+import numpy as np
 import pandas as pd
 import torch
-import numpy as np
-import os
-import matplotlib
-from typing import Any
-from typing import override
-from pathlib import Path
-from torch.utils.data import Dataset
+from matplotlib import pyplot as plt
 from torch import nn
 from torch.optim import Optimizer
-from torch.utils.data import DataLoader
-from torchmetrics.segmentation import DiceScore
+from torch.utils.data import DataLoader, Dataset
+from torchmetrics.segmentation import DiceScore, MeanIoU
 from tqdm.auto import tqdm
-from matplotlib import pyplot as plt
-from tqdm.auto import tqdm
-from globals import CS_LABEL2COLOR
 
 
 class ToMask(nn.Module):
     """
     Class use to preprocess RGB-Mask for segmentation tasck
     """
-    def __init__(self, map_, size = None):
+    def __init__(self, map_, size = None, fill = 0):
         super().__init__()
 
         self.map_ = map_
         self.size = size
+        self.fill = fill
 
     @override
     def forward(self, x):
@@ -41,9 +41,10 @@ class ToMask(nn.Module):
         if self.size:
             x = cv.resize(x, dsize=self.size)
 
-        x = image2Map(self.map_, x)
+        x = image2Map(self.map_, x, fill=self.fill)
         x = torch.as_tensor(x, dtype=torch.long).unsqueeze(0)
-
+        
+        
         return x
 
 class TrainNetwork:
@@ -60,7 +61,8 @@ class TrainNetwork:
         self._model: nn.Module = model
         self._loss: nn.Module = hp["loss"]
         self._optimizer: Optimizer = hp["optimizer"]
-        self.dice = DiceScore(num_classes=dice_num_classes, average='macro')
+        self.dice = DiceScore(num_classes=dice_num_classes, average='micro', input_format="index")
+        self.iou = MeanIoU(num_classes=dice_num_classes, input_format="index")
         self._lr_scheduler = lr_scheduler
 
     def __train(
@@ -73,13 +75,18 @@ class TrainNetwork:
         epoch_loss = 0
         loss = 0
         batch = 0
+
         bar = tqdm(
             desc="training", total=train_size  # type: ignore
         )  # uses len(dataset) instead of dataset.size
 
-        bar.set_postfix({"batch": 0, "loss": 0, "diceScore": 0.0, 'lr': self._optimizer.param_groups[0]['lr']})
+        bar.set_postfix({"batch": 0, "loss": 0, "diceScore": 0.0,"IoU": 0.0, 'lr': self._optimizer.param_groups[0]['lr']})
+        self.dice = self.dice.to(device)
+        self.iou  = self.iou.to(device)
         self.dice.reset()
+        self.iou.reset()
         dice_value = 0
+        iou_value  = 0
         for x, y, _ in dataloader_train:
             bar.set_description(f"training epoch: {epoch}", refresh=True)
         
@@ -90,9 +97,15 @@ class TrainNetwork:
             batch_len = len(y)
 
             self._optimizer.zero_grad()
+            
             y_pred = model(x)
+            
+            if isinstance(y_pred, OrderedDict):
+                y_pred = y_pred["out"] 
+                
             y_classes = torch.argmax(y_pred, dim=1)
             dice_value += self.dice(y_classes, y)
+            iou_value += self.iou(y_classes, y)
             loss = loss_fn(y_pred, y)
             loss_v = loss.item()
             epoch_loss += loss_v
@@ -105,6 +118,7 @@ class TrainNetwork:
                     "batch": batch,
                     "loss": epoch_loss / batch,
                     "diceScore": dice_value.numpy(force=True) / batch,
+                    "IoU": iou_value.numpy(force=True) / batch,
                     'lr': self._optimizer.param_groups[0]['lr']
                 }
             )
@@ -114,6 +128,7 @@ class TrainNetwork:
         log_train["epoch"].append(epoch)
         log_train["loss"].append(epoch_loss / batch)
         log_train["diceScore"].append(self.dice.compute().numpy(force=True))
+        log_train["IoU"].append(self.iou.compute().numpy(force=True))
         log_train["lr"].append(self._optimizer.param_groups[0]['lr'])
         return log_train
 
@@ -136,11 +151,18 @@ class TrainNetwork:
             {
                 "batch": 0,
                 "loss": 0,
-                "diceScore": 0.0
+                "diceScore": 0.0,
+                "IoU": 0.0
             }
         )
+        self.dice = self.dice.to(device)
+        self.iou  = self.iou.to(device)
         self.dice.reset()
+        self.iou.reset()
+
+        
         dice_value = 0
+        iou_value  = 0
         for x, y, _ in dataloader_val:
 
             with torch.no_grad():
@@ -153,8 +175,11 @@ class TrainNetwork:
 
                 # print(f"label shape {y.shape}")
                 y_pred = model(x)
+                if isinstance(y_pred, OrderedDict):
+                    y_pred = y_pred["out"] 
                 y_classes = torch.argmax(y_pred, dim=1)
                 dice_value += self.dice(y_classes, y)
+                iou_value  += self.iou(y_classes, y)
                 loss = loss_fn(y_pred, y)
 
                 loss_v = loss.item()
@@ -164,7 +189,8 @@ class TrainNetwork:
                     {
                         "batch": batch,
                         "loss": epoch_loss / batch,
-                        "diceScore": dice_value.numpy(force=True) / batch
+                        "diceScore": dice_value.numpy(force=True) / batch,
+                        "IoU" : iou_value.numpy(force=True) / batch 
                     }
                 )
                 bar.update(batch_len)
@@ -173,6 +199,7 @@ class TrainNetwork:
         log_eval["epoch"].append(epoch)
         log_eval["loss"].append(epoch_loss / batch)
         log_eval["diceScore"].append(self.dice.compute().numpy(force=True))
+        log_eval["IoU"].append(self.iou.compute().numpy(force=True))
         log_eval["lr"].append(0)
 
         return log_eval
@@ -186,6 +213,7 @@ class TrainNetwork:
         batch_size: int = 1,
         objective: str = "loss",
         massimize: bool = False,
+        map_cls_to_color = None,
     ) -> tuple[nn.Module, dict[str, list[float]], dict[str, list[float]]]:
         """
         Train method, effettua il traning della rete specificata utilizzando come datasets di train e validazione quelli specificati.
@@ -224,13 +252,15 @@ class TrainNetwork:
             "loss"     : [],
             "diceScore": [],
             "lr"       : [],
+            "IoU"      : []
         }
 
         log_eval = {
             "epoch"     : [],
             "loss"      : [],
             "diceScore" : [],
-            "lr"        : []   
+            "lr"        : []  ,
+            "IoU"       : [] 
         }
 
         model = self._model.to(device)
@@ -280,20 +310,21 @@ class TrainNetwork:
                 old_weights = log_dir.joinpath(f"best_weights_epoch_{epoch}.pth")
 
             # Qalitative learning rapresentation
-            model.eval()
-            with torch.no_grad():
+            if map_cls_to_color:
+                model.eval()
+                with torch.no_grad():
 
-                x, y, _ = validation_set[5]
-                x = x.unsqueeze(0).to(device)
+                    x, y, _ = validation_set[randint(0, len(validation_set))]
+                    x = x.unsqueeze(0).to(device)
 
-                y_pred = model(x).argmax(dim=1).cpu().numpy().squeeze(0)
-                y = y.cpu().squeeze(0).numpy()
+                    y_pred = model(x).argmax(dim=1).cpu().numpy().squeeze(0)
+                    y = y.cpu().squeeze(0).numpy()
 
-                y_pred = map2Image(CS_LABEL2COLOR, y_pred)
-                y = map2Image(CS_LABEL2COLOR, y)
+                    y_pred = map2Image(map_cls_to_color, y_pred)
+                    y = map2Image(map_cls_to_color, y)
 
-                result = np.hstack((y, y_pred))
-                plt.imsave(f"{log_dir}/result_epoch_{epoch}.png", result, cmap="gray")
+                    result = np.hstack((y, y_pred))
+                    plt.imsave(f"{log_dir}/result_epoch_{epoch}.png", result, cmap="gray")
 
         ###########
         # Logging #

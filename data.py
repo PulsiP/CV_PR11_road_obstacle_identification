@@ -17,8 +17,59 @@ from torchvision.transforms.v2 import Compose
 class DatasetFactory:
     def __init__(self, out_dir: Path | str) -> None:
         self.out_dir = Path(out_dir)
+    
+    def produce_Obs(
+        self, src_img_dir: Path | str, src_label_dir: Path | str, split: Path | str
+    , copy_size:tuple[int,int]|None = None) -> None:
+        """
+        Costruisce un nuovo dataset a partire dalla struttura base del dataset Cityscape nella forma
 
-    def produce(
+            datasetPath/
+            ├── img/
+            └── label/
+
+        """
+        src_img_dir = Path(src_img_dir)
+        src_label_dir = Path(src_label_dir) 
+        base_dir = self.out_dir.joinpath(split) 
+
+        img_path = base_dir.joinpath("img")
+        label_path = base_dir.joinpath("label")
+        os.makedirs(img_path, exist_ok=True)
+        os.makedirs(label_path, exist_ok=True)
+
+        for dir_ in src_img_dir.iterdir():
+            for file_ in dir_.glob("*leftImg8bit.png"):
+                att = file_.stem.split("_")
+                ids = "".join(att[1:3]) + "".join(att[5:7])
+               
+                nn = ids + file_.suffix
+                if copy_size:
+                    image = cv.imread(file_)
+                    image = cv.resize(image, copy_size, interpolation=4)
+                    cv.imwrite(img_path.joinpath(nn), image)
+                else:    
+                    shutil.copy2(file_, img_path.joinpath(nn))
+                
+                
+
+        for dir_ in src_label_dir.iterdir():
+            for file_ in dir_.glob("*color.png"):
+                att = file_.stem.split("_")
+                ids = "".join(att[1:3]) + "".join(att[5:7])
+                nn = ids + file_.suffix
+
+                if copy_size:
+                    image = cv.imread(file_)
+                    image = cv.resize(image, copy_size, interpolation=4)
+                    cv.imwrite(label_path.joinpath(nn), image)
+                     
+                else:
+                    shutil.copy2(file_, label_path.joinpath(nn))
+
+        return None
+
+    def produce_CS(
         self, src_img_dir: Path | str, src_label_dir: Path | str, split: Path | str
     , copy_size:tuple[int,int]|None = None) -> None:
         """
@@ -40,7 +91,7 @@ class DatasetFactory:
 
         for dir_ in src_img_dir.iterdir():
 
-            for file_ in dir_.glob("*eftImg8bit.png"):
+            for file_ in dir_.glob("*leftImg8bit.png"):
                 att = file_.stem.split("_")
                 ids = "".join(att[1:3])
                 idds = att[0]
@@ -70,6 +121,8 @@ class DatasetFactory:
 
         return None
 
+
+    
 
 class CSDataset(Dataset):
     """
@@ -119,6 +172,18 @@ class CSDataset(Dataset):
         y = cv.cvtColor(cv.imread(self._y[index]), cv.COLOR_BGR2RGB)
         l = self._label[index]
 
+        lab = cv.cvtColor(x, cv.COLOR_RGB2LAB)
+        # Separare i canali
+        l, a, b = cv.split(lab)
+
+        # CLAHE sul canale L
+        clahe = cv.createCLAHE(clipLimit=1.4, tileGridSize=(12,12))
+        cl = clahe.apply(l)
+
+        # Ricompone e converte di nuovo in BGR
+        limg = cv.merge((cl, a, b))
+        x = cv.cvtColor(limg, cv.COLOR_LAB2RGB)
+
         if self.transform_x:
             x = self.transform_x(x)
 
@@ -129,6 +194,6 @@ class CSDataset(Dataset):
 
 
 if __name__ == "__main__":
-    d = CSDataset('./Dataset/train')
-    for (x,y,l) in d:
-        pass
+    DatasetFactory("ObstacleF").produce_Obs("Obstacle/train/img", "Obstacle/train/label", "train")
+    DatasetFactory("ObstacleF").produce_Obs("Obstacle/val/img", "Obstacle/val/label", "val")
+    

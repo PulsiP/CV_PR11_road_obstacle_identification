@@ -5,37 +5,36 @@ from collections import namedtuple
 # Definitions
 # --------------------------------------------------------------------------------
 
-# a label and all meta information
-Label = namedtuple(
-    "Label",
-    [
-        "name",  # The identifier of this label, e.g. 'car', 'person', ... .
-        # We use them to uniquely name a class
-        "id",  # An integer ID that is associated with this label.
-        # The IDs are used to represent the label in ground truth images
-        # An ID of -1 means that this label does not have an ID and thus
-        # is ignored when creating ground truth images (e.g. license plate).
-        # Do not modify these IDs, since exactly these IDs are expected by the
-        # evaluation server.
-        "trainId",  # Feel free to modify these IDs as suitable for your method. Then create
-        # ground truth images with train IDs, using the tools provided in the
-        # 'preparation' folder. However, make sure to validate or submit results
-        # to our evaluation server using the regular IDs above!
-        # For trainIds, multiple labels might have the same ID. Then, these labels
-        # are mapped to the same class in the ground truth images. For the inverse
-        # mapping, we use the label that is defined first in the list below.
-        # For example, mapping all void-type classes to the same ID in training,
-        # might make sense for some approaches.
-        # Max value is 255!
-        "category",  # The name of the category that this label belongs to
-        "categoryId",  # The ID of this category. Used to create ground truth images
-        # on category level.
-        "hasInstances",  # Whether this label distinguishes between single instances or not
-        "ignoreInEval",  # Whether pixels having this class as ground truth label are ignored
-        # during evaluations or not
-        "color",  # The color of this label
-    ],
-)
+Label = namedtuple( 'Label' , [
+
+    'name'        , # The identifier of this label, e.g. 'car', 'person', ... .
+                    # We use them to uniquely name a class
+
+    'id'          , # An integer ID that is associated with this label.
+                    # The IDs are used to represent the label in ground truth images
+                    # An ID of -1 means that this label does not have an ID and thus
+                    # is ignored when creating ground truth images (e.g. license plate).
+
+    'trainId'     , # An integer ID that overwrites the ID above, when creating ground truth
+                    # images for training.
+                    # For training, multiple labels might have the same ID. Then, these labels
+                    # are mapped to the same class in the ground truth images. For the inverse
+                    # mapping, we use the label that is defined first in the list below.
+                    # For example, mapping all void-type classes to the same ID in training,
+                    # might make sense for some approaches.
+
+    'category'    , # The name of the category that this label belongs to
+
+    'categoryId'  , # The ID of this category. Used to create ground truth images
+                    # on category level.
+
+    'hasInstances', # Whether this label distinguishes between single instances or not
+
+    'ignoreInEval', # Whether pixels having this class as ground truth label are ignored
+                    # during evaluations or not
+
+    'color'       , # The color of this label
+    ] )
 
 
 # --------------------------------------------------------------------------------
@@ -48,7 +47,7 @@ Label = namedtuple(
 # Make sure to provide your results using the original IDs and not the training IDs.
 # Note that many IDs are ignored in evaluation and thus you never need to predict these!
 
-CS_LABELS = [
+CS_LABEL = [
     #       name                     id    trainId   category            catId     hasInstances   ignoreInEval   color
     Label("unlabeled",              0, 20, "void", 0, False, True, (0, 0, 0)),
     Label("ego vehicle",            1, 20, "void", 0, False, True, (0, 0, 0)),
@@ -87,14 +86,101 @@ CS_LABELS = [
     Label("license plate",          -1, 19, "vehicle", 7, False, True, (0, 0, 142)), # remap -1 -> 19
 ]
 
+Label = namedtuple( 'Label' , [
+
+    'name'        , # The identifier of this label, e.g. 'car', 'person', ... .
+                    # We use them to uniquely name a class
+
+    'id'          , # An integer ID that is associated with this label.
+                    # The IDs are used to represent the label in ground truth images
+                    # An ID of -1 means that this label does not have an ID and thus
+                    # is ignored when creating ground truth images (e.g. license plate).
+
+    'trainId'     , # An integer ID that overwrites the ID above, when creating ground truth
+                    # images for training.
+                    # For training, multiple labels might have the same ID. Then, these labels
+                    # are mapped to the same class in the ground truth images. For the inverse
+                    # mapping, we use the label that is defined first in the list below.
+                    # For example, mapping all void-type classes to the same ID in training,
+                    # might make sense for some approaches.
+
+    'hasInstances', # Whether this label distinguishes between single instances or not
+
+    'ignoreInEval', # Whether pixels having this class as ground truth label are ignored
+                    # during evaluations or not
+
+    'color'       , # The color of this label
+    ] )
+
+OBS_LABEL = [
+    #       name                     id      trainId    hasInstances   ignoreInEval   color
+    Label(  'unlabeled'            ,  0 ,       0       , False        , True         , (  0,  0,  0) ),
+    Label(  'ego vehicle'          ,  0 ,       0       , False        , True         , (  0,  0,  0) ),
+    Label(  'rectification border' ,  0 ,       0       , False        , True         , (  0,  0,  0) ),
+    Label(  'out of roi'           ,  0 ,       0       , False        , True         , (  0,  0,  0) ),
+    Label(  'background'           ,  0 ,       0       , False        , False        , (  0,  0,  0) ),
+    Label(  'free'                 ,  1 ,       1       , False        , False        , (128, 64,128) ),
+    Label(  '01'                   ,  2 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '02'                   ,  3 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '03'                   ,  4 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '04'                   ,  5 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '05'                   ,  6 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '06'                   ,  7 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '07'                   ,  8 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '08'                   ,  9 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '09'                   , 10 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '10'                   , 11 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '11'                   , 12 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '12'                   , 13 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '13'                   , 14 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '14'                   , 15 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '15'                   , 16 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '16'                   , 17 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '17'                   , 18 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '18'                   , 19 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '19'                   , 20 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '20'                   , 21 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '21'                   , 22 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '22'                   , 23 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '23'                   , 24 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '24'                   , 25 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '25'                   , 26 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '26'                   , 27 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '27'                   , 28 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '28'                   , 29 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '29'                   , 30 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '30'                   , 31 ,       0       , True         , False        , (  0,  0,  0) ),
+    Label(  '31'                   , 32 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '32'                   , 33 ,       0       , True         , False        , (  0,  0,  0) ),
+    Label(  '33'                   , 34 ,       0       , True         , False        , (  0,  0,  0) ),
+    Label(  '34'                   , 35 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '35'                   , 36 ,       0       , True         , False        , (  0,  0,  0) ),
+    Label(  '36'                   , 37 ,       0       , True         , False        , (  0,  0,  0) ),
+    Label(  '37'                   , 38 ,       0       , True         , False        , (  0,  0,  0) ),
+    Label(  '38'                   , 39 ,       0       , True         , False        , (  0,  0,  0) ),
+    Label(  '39'                   , 40 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '40'                   , 41 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '41'                   , 42 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '42'                   , 43 ,       2       , True         , False        , (  0,  0,142) ),
+
+]
 
 # --------------------------------------------------------------------------------
 # Create dictionaries for a fast lookup
 # --------------------------------------------------------------------------------
 
 # trainId → color
-CS_LABEL2COLOR = {label.trainId: label.color for label in CS_LABELS if label.trainId != 20}
+CS_LABEL2COLOR = {label.trainId: label.color for label in CS_LABEL if label.trainId != 20}
 CS_LABEL2COLOR[20] = (0, 0, 0)  # colore per ignore label
 
+OBS_LABEL2COLOR = {label.trainId: label.color for label in OBS_LABEL if label.trainId != 0}
+OBS_LABEL2COLOR[0] = (0, 0, 0)  # colore per ignore label
+
+
+
 # color → trainId
-CS_COLOR2LABEL = {label.color: label.trainId for label in CS_LABELS if label.trainId != 20}
+CS_COLOR2LABEL = {label.color: label.trainId for label in CS_LABEL if label.trainId != 20}
+CS_COLOR2LABEL[(0,0,0)] = 20
+
+OBS_COLOR2LABEL = {label.color: label.trainId for label in OBS_LABEL if label.trainId != 0}
+OBS_COLOR2LABEL[(0,0,0)] = 0
