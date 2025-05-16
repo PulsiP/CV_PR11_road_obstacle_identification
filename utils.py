@@ -358,8 +358,8 @@ class TrainNetwork:
                         y_pred = bmap2Image(map_cls_to_color, y_pred)
                         y = bmap2Image(map_cls_to_color, y)
 
-                    result = np.hstack((img.permute((1,2,0)), y, y_pred))
-                    result = np.clip(result, 0, 1)
+                    result = np.hstack((img.permute((1,2,0)), y, y_pred)).astype(np.uint8)
+                   
                     plt.imsave(f"{log_dir}/result_epoch_{epoch}.png", result)
                     varisco_heatmap = compute_varisco_heatmap_rgb(y_pred_logits)
                     plt.imsave(f"{log_dir}/heatmap_epoch_{epoch}.png", varisco_heatmap, cmap="hot")
@@ -422,8 +422,8 @@ def bmap2Image(map_, x, fill=0):
     mask = np.full((h, w, 3), fill_value=fill, dtype=np.uint8)
 
     for class_id, color in map_.items():
-        print(f" {class_id} -> {color}")
-        print(f"  {color} → {class_id}")
+        #print(f" {class_id} -> {color}")
+        #print(f"  {color} → {class_id}")
         match = x == class_id
         mask[match] = color
     
