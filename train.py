@@ -26,31 +26,46 @@ args = parser.parse_args()
 match args.dataset:
 
     case "Fine256x96":
+        ENCODE = "index"
         DATASET_NAME = "Fine256x96"
         MAP_COLOR2LABEL = CS_COLOR2LABEL
         MAP_LABEL2COLOR = CS_LABEL2COLOR
-        NUM_CLS = 20
+        NUM_CLS = 14
         FILL = 0
         MASK_FN = ToMask(MAP_COLOR2LABEL, fill=FILL)
 
     case "Fine512x192":
+        ENCODE = "index"
         DATASET_NAME = "Fine512x192"
         MAP_COLOR2LABEL = CS_COLOR2LABEL
         MAP_LABEL2COLOR = CS_LABEL2COLOR
-        NUM_CLS = 20
+        NUM_CLS = 14
         FILL = 0
         MASK_FN = ToMask(MAP_COLOR2LABEL, fill=FILL)
-    
-    case "Fine512x192_BS":
+
+    case "Fine512x192_OH":
+        ENCODE = "one-hot"
         DATASET_NAME = "Fine512x192"
         MAP_COLOR2LABEL = CS_COLOR2LABEL
         MAP_LABEL2COLOR = CS_LABEL2COLOR
-        NUM_CLS = 20
+        NUM_CLS = 14
+        FILL = 0
+        MASK_FN = ToBMask(MAP_COLOR2LABEL, fill=FILL)
+    
+
+    
+    case "Fine512x192_BS":
+        ENCODE = "one-hot"
+        DATASET_NAME = "Fine512x192"
+        MAP_COLOR2LABEL = CSB_COLOR2LABEL
+        MAP_LABEL2COLOR = CSB_LABEL2COLOR
+        NUM_CLS = 2
         FILL = 0
         MASK_FN = ToBMask(MAP_COLOR2LABEL, fill=FILL)
 
 
     case "Obstacle512x192":
+        ENCODE = "index"
         DATASET_NAME = "Obstacle512x192"
         MAP_COLOR2LABEL = OBS_COLOR2LABEL
         MAP_LABEL2COLOR = OBS_LABEL2COLOR
@@ -85,7 +100,7 @@ scheduler = None
 
 match args.model:
     case "FCN":
-        ENCODE = "index"
+        
         model = FCN(params=FCNParams(NUM_CLS))
         hyper_parameters = {
             "loss": smp.losses.DiceLoss(mode='multiclass'),
@@ -94,7 +109,6 @@ match args.model:
 
         trainer = TrainNetwork(hyper_parameters, model)
     case "DeepLab":
-        ENCODE = "index"
         # Advanced Encoder-decoder newtwork for segmentation tasck
         model = DeepLabV3Plus(
             encoder_name="resnet101",       # backbone
@@ -122,7 +136,6 @@ match args.model:
         scheduler = StepLR(optimizer=optim, step_size=6, gamma=0.1)
 
     case "Unet++":
-        ENCODE = "index"
         model = smp.UnetPlusPlus(encoder_name="resnet50", classes=NUM_CLS, encoder_depth=3, decoder_channels=(256, 128, 64), activation='sigmoid')
         optim = torch.optim.Adam(model.parameters())
         hyper_parameters = {
@@ -132,19 +145,20 @@ match args.model:
         scheduler = StepLR(optimizer=optim, step_size=10, gamma=0.1)
     
     case "MyNetwork":
-        ENCODE = "one-hot"
         model = smp.DeepLabV3Plus(
             encoder_name="resnet50",
             encoder_weights="imagenet",
             classes=NUM_CLS,
-            activation="softmax"
+            activation="sigmoid"
         )
+        for layer in model.encoder.parameters():
+            layer.requires_grad = False
         optim = torch.optim.SGD(model.parameters(), momentum=0.9, weight_decay=1e-4, lr=0.01)
         hyper_parameters = {
             "loss": nn.BCELoss(),
             "optimizer": optim
         } 
-        scheduler = PolynomialLR(optimizer=optim, power=0.9, total_iters=args.epochs)
+        #scheduler = PolynomialLR(optimizer=optim, power=0.9, total_iters=args.epochs)
     
     case _:
         raise ValueError("Network not found")

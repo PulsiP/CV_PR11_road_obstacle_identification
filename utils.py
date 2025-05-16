@@ -7,7 +7,8 @@ from collections import OrderedDict
 from pathlib import Path
 from random import randint
 from typing import Any, override
-
+import matplotlib.pyplot as plt
+import numpy as np
 import cv2 as cv
 import matplotlib
 import numpy as np
@@ -341,6 +342,7 @@ class TrainNetwork:
                     img, y, _ = validation_set[randint(0, len(validation_set))]
                     x = img.clone()
                     x = x.unsqueeze(0).to(device)
+                    img = img.numpy(force=True)
 
                     y_pred_logits = model(x)
                     y_pred = y_pred_logits.argmax(dim=1).cpu().numpy().squeeze(0)
@@ -358,10 +360,12 @@ class TrainNetwork:
                         y_pred = bmap2Image(map_cls_to_color, y_pred)
                         y = bmap2Image(map_cls_to_color, y)
 
-                    result = np.hstack((img.permute((1,2,0)), y, y_pred)).astype(np.uint8)
+
+                    
+                    result = np.hstack((np.permute_dims(img*255, (1,2,0)), y, y_pred)).astype(np.uint8)
                    
                     plt.imsave(f"{log_dir}/result_epoch_{epoch}.png", result)
-                    varisco_heatmap = compute_varisco_heatmap_rgb(y_pred_logits)
+                    varisco_heatmap = compute_varisco_heatmap_rgb(y_pred_logits,0.3)
                     plt.imsave(f"{log_dir}/heatmap_epoch_{epoch}.png", varisco_heatmap, cmap="hot")
 
         ###########
@@ -388,10 +392,10 @@ def show_tensor(tensor: torch.Tensor, cmap: str = "gray") -> None:
     plt.show()
 
 
-def image2Map(map_, x, fill=20):
+def image2Map(map_, x, fill=0):
     """
     Convert RGB Image in Quantizited Image using Quantization Table `map_`
-    Unquantizited values will map with 20 (unknow by default)
+    Unquantizited values will map with 0 (unknow by default)
     """
     h, w, _ = x.shape
     mask = np.full((h, w), fill_value=fill, dtype=np.uint8)
@@ -444,17 +448,6 @@ def map2Image(map_, x) -> np.ndarray:
 
     return mask
     
-def compute_varisco_heatmap(logits: torch.Tensor, lambda_thresh: float = 0.1) -> np.ndarray:
-    with torch.no_grad():
-        probs = logits #torch.softmax(logits, dim=1)  # [1, C, H, W]
-        prediction_set = (logits > lambda_thresh).float()
-        varisco_map = prediction_set.sum(dim=1).squeeze(0)
-        varisco_map = varisco_map / varisco_map.max()
-        
-    return varisco_map.cpu().numpy()
-
-import matplotlib.pyplot as plt
-import numpy as np
 
 def compute_varisco_heatmap_rgb(logits: torch.Tensor, lambda_thresh: float = 0.1) -> np.ndarray:
     with torch.no_grad():
