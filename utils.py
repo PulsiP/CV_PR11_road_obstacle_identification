@@ -15,6 +15,7 @@ import pandas as pd
 import torch
 from matplotlib import pyplot as plt
 from torch import nn
+from torch.nn import functional as F
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader, Dataset
 from torchmetrics.segmentation import DiceScore, MeanIoU
@@ -47,6 +48,36 @@ class ToMask(nn.Module):
         
         return x
 
+class ToBMask(nn.Module):
+    """
+    Class use to preprocess RGB-Mask for segmentation tasck and produce
+    One-hot-encoded masck given map definition that map color in specific
+    one-hot layer.
+    """
+    def __init__(self, map_, size = None, fill = 0):
+        """"""
+        super().__init__()
+
+        self.map_ = map_
+        self.size = size
+        self.fill = fill
+
+    @override
+    def forward(self, x):
+        """
+        Converte immagine RGB [H, W, 3] in maschera [1, H, W] con classi numeriche.
+        Pixel con colori non riconosciuti vengono assegnati a classe 0 (fallback).
+        """
+        if self.size:
+            x = cv.resize(x, dsize=self.size)
+
+        x = image2BMap(self.map_, x, fill=self.fill)
+        x = torch.as_tensor(x, dtype=torch.float32)
+        
+        
+        return x
+
+
 class TrainNetwork:
     """
     Classe specializzata nell'effettuare l'attività di traning per la rete proposta. Tutti i modelli conformi alle specifiche di rete
@@ -54,16 +85,17 @@ class TrainNetwork:
     configurati
     """
 
-    def __init__(self, hp: dict[str, Any], model: nn.Module, dice_num_classes:int=21, lr_scheduler = None) -> None:
+    def __init__(self, hp: dict[str, Any], model: nn.Module, dice_num_classes:int=21, lr_scheduler = None, encode = "index") -> None:
         """
         Inizializza il trainer
         """
         self._model: nn.Module = model
         self._loss: nn.Module = hp["loss"]
         self._optimizer: Optimizer = hp["optimizer"]
-        self.dice = DiceScore(num_classes=dice_num_classes, average='micro', input_format="index")
-        self.iou = MeanIoU(num_classes=dice_num_classes, input_format="index")
+        self.dice = DiceScore(num_classes=dice_num_classes, average='micro', input_format=encode)
+        self.iou = MeanIoU(num_classes=dice_num_classes, input_format=encode)
         self._lr_scheduler = lr_scheduler
+        self.encode = encode
 
     def __train(
         self, dataloader_train, model, epoch, loss_fn, device, log_train, train_size
@@ -89,7 +121,10 @@ class TrainNetwork:
         iou_value  = 0
         for x, y, _ in dataloader_train:
             bar.set_description(f"training epoch: {epoch}", refresh=True)
-        
+
+
+            #print(f"x shape: {x.shape}")
+            #print(f"y shape: {y.shape}")
             x = x.to(device)
             y = y.squeeze(1).to(device)
 
@@ -100,12 +135,17 @@ class TrainNetwork:
             
             y_pred = model(x)
             
+            
             if isinstance(y_pred, OrderedDict):
                 y_pred = y_pred["out"] 
                 
-            y_classes = torch.argmax(y_pred, dim=1)
-            dice_value += self.dice(y_classes, y)
-            iou_value += self.iou(y_classes, y)
+            
+            
+            y_classes = (torch.argmax(y_pred, dim=1) if self.encode == "index" else F.one_hot(torch.argmax(y_pred, dim=1), num_classes=y_pred.shape[1]).permute(0, 3, 1, 2))
+            
+            dice_value += self.dice(y_classes, y.long())
+            iou_value += self.iou(y_classes, y.long())
+            
             loss = loss_fn(y_pred, y)
             loss_v = loss.item()
             epoch_loss += loss_v
@@ -177,9 +217,9 @@ class TrainNetwork:
                 y_pred = model(x)
                 if isinstance(y_pred, OrderedDict):
                     y_pred = y_pred["out"] 
-                y_classes = torch.argmax(y_pred, dim=1)
-                dice_value += self.dice(y_classes, y)
-                iou_value  += self.iou(y_classes, y)
+                y_classes = (torch.argmax(y_pred, dim=1) if self.encode == "index" else F.one_hot(torch.argmax(y_pred, dim=1), num_classes=y_pred.shape[1]).permute(0, 3, 1, 2))
+                dice_value += self.dice(y_classes, y.long())
+                iou_value  += self.iou(y_classes, y.long())
                 loss = loss_fn(y_pred, y)
 
                 loss_v = loss.item()
@@ -267,24 +307,8 @@ class TrainNetwork:
         loss_fn = self._loss.to(device)
 
         for epoch in range(1, epochs + 1):
-            self.__train(
-                dataloader_train,
-                model,
-                epoch,
-                loss_fn,
-                device,
-                log_train,
-                len(train_set),
-            )
-            self.__eval(
-                dataloader_val,
-                model,
-                epoch,
-                loss_fn,
-                device,
-                log_eval,
-                len(validation_set),
-            )
+            self.__train(dataloader_train,model,epoch,loss_fn,device,log_train,len(train_set))
+            self.__eval(dataloader_val,model,epoch,loss_fn,device,log_eval,len(validation_set))
 
             if self._lr_scheduler:
                 self._lr_scheduler.step()
@@ -314,17 +338,31 @@ class TrainNetwork:
                 model.eval()
                 with torch.no_grad():
 
-                    x, y, _ = validation_set[randint(0, len(validation_set))]
+                    img, y, _ = validation_set[randint(0, len(validation_set))]
+                    x = img.clone()
                     x = x.unsqueeze(0).to(device)
 
-                    y_pred = model(x).argmax(dim=1).cpu().numpy().squeeze(0)
+                    y_pred_logits = model(x)
+                    y_pred = y_pred_logits.argmax(dim=1).cpu().numpy().squeeze(0)
+
                     y = y.cpu().squeeze(0).numpy()
+                    
+                    
 
-                    y_pred = map2Image(map_cls_to_color, y_pred)
-                    y = map2Image(map_cls_to_color, y)
+                    if self.encode == "index":
+                        y_pred = map2Image(map_cls_to_color, y_pred)
+                        y = map2Image(map_cls_to_color, y)
+                    else:
+                         
+                        y = np.argmax(y, axis=0)
+                        y_pred = bmap2Image(map_cls_to_color, y_pred)
+                        y = bmap2Image(map_cls_to_color, y)
 
-                    result = np.hstack((y, y_pred))
-                    plt.imsave(f"{log_dir}/result_epoch_{epoch}.png", result, cmap="gray")
+                    result = np.hstack((img.permute((1,2,0)), y, y_pred))
+                    result = np.clip(result, 0, 1)
+                    plt.imsave(f"{log_dir}/result_epoch_{epoch}.png", result)
+                    varisco_heatmap = compute_varisco_heatmap_rgb(y_pred_logits)
+                    plt.imsave(f"{log_dir}/heatmap_epoch_{epoch}.png", varisco_heatmap, cmap="hot")
 
         ###########
         # Logging #
@@ -365,6 +403,32 @@ def image2Map(map_, x, fill=20):
 
     return mask
 
+# from RGB color to layers (indexed using TrainId)
+def image2BMap(map_, x, fill=0):
+    h, w, _ = x.shape
+    mask = np.full((len(set(map_.values())), h, w), fill_value=fill, dtype=np.uint8)
+    for color, class_id in map_.items():
+        #print(f"  {color} → {class_id}")
+        match = np.all(x == color, axis=-1)
+        mask[class_id][match] = 1
+    
+    return mask
+    
+
+# from layer to RGB color
+def bmap2Image(map_, x, fill=0):
+    
+    h, w = x.shape
+    mask = np.full((h, w, 3), fill_value=fill, dtype=np.uint8)
+
+    for class_id, color in map_.items():
+        print(f" {class_id} -> {color}")
+        print(f"  {color} → {class_id}")
+        match = x == class_id
+        mask[match] = color
+    
+    return mask
+    
 
 def map2Image(map_, x) -> np.ndarray:
     """ Map quantizited Image in RGB Image """
@@ -376,11 +440,60 @@ def map2Image(map_, x) -> np.ndarray:
         # print(f"  {color} → {class_id}")
 
         match = x == class_id
-
         mask[match] = color
 
     return mask
+    
+def compute_varisco_heatmap(logits: torch.Tensor, lambda_thresh: float = 0.1) -> np.ndarray:
+    with torch.no_grad():
+        probs = logits #torch.softmax(logits, dim=1)  # [1, C, H, W]
+        prediction_set = (logits > lambda_thresh).float()
+        varisco_map = prediction_set.sum(dim=1).squeeze(0)
+        varisco_map = varisco_map / varisco_map.max()
+        
+    return varisco_map.cpu().numpy()
 
+import matplotlib.pyplot as plt
+import numpy as np
+
+def compute_varisco_heatmap_rgb(logits: torch.Tensor, lambda_thresh: float = 0.1) -> np.ndarray:
+    with torch.no_grad():
+        # Se i logits sono già probabilità, non c'è bisogno di softmax
+        probs = logits  # [1, C, H, W]
+        
+        # Predizione attiva per ogni pixel rispetto alla soglia
+        prediction_set = (probs > lambda_thresh).float()
+        
+        # Sommiamo lungo la dimensione delle classi per ottenere una mappa di probabilità
+        varisco_map = prediction_set.sum(dim=1).squeeze(0)  # [H, W] -> Somma lungo il canale delle classi
+        
+        # Normalizziamo tra 0 e 1
+        varisco_map = varisco_map / varisco_map.max()
+
+        # Convertiamo in array NumPy per applicare una colormap
+        varisco_map_np = varisco_map.cpu().numpy()
+
+        # Applichiamo una colormap per generare una heatmap RGB
+        heatmap_rgb = plt.cm.jet(varisco_map_np)[:, :, :3]  # Prendiamo solo i 3 canali RGB
+        heatmap_rgb = (heatmap_rgb * 255).astype(np.uint8)  # Converti i valori da [0, 1] a [0, 255]
+
+        return heatmap_rgb  # [H, W, 3] (RGB)
+
+
+def improve_image(x):
+    lab = cv.cvtColor(x, cv.COLOR_RGB2LAB)
+    # Separare i canali
+    l, a, b = cv.split(lab)
+
+    # CLAHE sul canale L
+    clahe = cv.createCLAHE(clipLimit=1.4, tileGridSize=(12,12))
+    cl = clahe.apply(l)
+
+    # Ricompone e converte di nuovo in BGR
+    limg = cv.merge((cl, a, b))
+    x = cv.cvtColor(limg, cv.COLOR_LAB2RGB)
+
+    return x
 
 def resize(src_dir: Path | str, out_dir: Path | str, split: Path | str, size:tuple[int, int]|None = None) -> None:
         """

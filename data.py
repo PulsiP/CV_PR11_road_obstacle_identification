@@ -13,6 +13,8 @@ from numpy import ndarray
 from torch.utils.data import Dataset
 from torchvision.transforms.v2 import Compose
 
+from utils import improve_image
+
 
 class DatasetFactory:
     def __init__(self, out_dir: Path | str) -> None:
@@ -172,17 +174,7 @@ class CSDataset(Dataset):
         y = cv.cvtColor(cv.imread(self._y[index]), cv.COLOR_BGR2RGB)
         l = self._label[index]
 
-        lab = cv.cvtColor(x, cv.COLOR_RGB2LAB)
-        # Separare i canali
-        l, a, b = cv.split(lab)
-
-        # CLAHE sul canale L
-        clahe = cv.createCLAHE(clipLimit=1.4, tileGridSize=(12,12))
-        cl = clahe.apply(l)
-
-        # Ricompone e converte di nuovo in BGR
-        limg = cv.merge((cl, a, b))
-        x = cv.cvtColor(limg, cv.COLOR_LAB2RGB)
+        x = improve_image(x)
 
         if self.transform_x:
             x = self.transform_x(x)
