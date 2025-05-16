@@ -365,9 +365,12 @@ class TrainNetwork:
                     result = np.hstack((np.permute_dims(img*255, (1,2,0)), y, y_pred)).astype(np.uint8)
                    
                     plt.imsave(f"{log_dir}/result_epoch_{epoch}.png", result)
-                    varisco_heatmap = compute_varisco_heatmap_rgb(y_pred_logits,0.3)
-                    plt.imsave(f"{log_dir}/heatmap_epoch_{epoch}.png", varisco_heatmap, cmap="hot")
 
+                    varisco_heatmap = compute_varisco_heatmap_rgb(y_pred_logits, 0.3)
+                    overlay = overlay_heatmap(np.transpose(img * 255, (1, 2, 0)), varisco_heatmap, alpha=0.5)
+
+                    plt.imsave(f"{log_dir}/heatmap_epoch_{epoch}.png", varisco_heatmap)
+                    plt.imsave(f"{log_dir}/heatmap_overlay_epoch_{epoch}.png", overlay)
         ###########
         # Logging #
         ###########
@@ -449,29 +452,49 @@ def map2Image(map_, x) -> np.ndarray:
     return mask
     
 
-def compute_varisco_heatmap_rgb(logits: torch.Tensor, lambda_thresh: float = 0.1) -> np.ndarray:
+def compute_varisco_heatmap_rgb(logits: torch.Tensor, lambda_thresh: float = 0.3) -> np.ndarray:
     with torch.no_grad():
-        # Se i logits sono già probabilità, non c'è bisogno di softmax
-        probs = logits  # [1, C, H, W]
+        # Usa i logits grezzi (senza softmax)
+        prediction_set = (logits > lambda_thresh).float()
         
-        # Predizione attiva per ogni pixel rispetto alla soglia
-        prediction_set = (probs > lambda_thresh).float()
+        # Somma le classi attive per pixel
+        varisco_map = prediction_set.sum(dim=1).squeeze(0)  # [H, W]
         
-        # Sommiamo lungo la dimensione delle classi per ottenere una mappa di probabilità
-        varisco_map = prediction_set.sum(dim=1).squeeze(0)  # [H, W] -> Somma lungo il canale delle classi
-        
-        # Normalizziamo tra 0 e 1
-        varisco_map = varisco_map / varisco_map.max()
+        # Normalizza tra 0 e 1 tenendo conto del minimo
+        min_val = varisco_map.min()
+        max_val = varisco_map.max()
+        if max_val > min_val:
+            varisco_map = (varisco_map - min_val) / (max_val - min_val)
+        else:
+            varisco_map = varisco_map * 0  # o lascia invariato se vuoi
 
-        # Convertiamo in array NumPy per applicare una colormap
+        # Converte in numpy
         varisco_map_np = varisco_map.cpu().numpy()
+        
+        # Applica colormap jet
+        heatmap_rgb = plt.cm.jet(varisco_map_np)[:, :, :3]
+        
+        # Scala in uint8
+        heatmap_rgb = (heatmap_rgb * 255).astype(np.uint8)
 
-        # Applichiamo una colormap per generare una heatmap RGB
-        heatmap_rgb = plt.cm.jet(varisco_map_np)[:, :, :3]  # Prendiamo solo i 3 canali RGB
-        heatmap_rgb = (heatmap_rgb * 255).astype(np.uint8)  # Converti i valori da [0, 1] a [0, 255]
+        return heatmap_rgb
 
-        return heatmap_rgb  # [H, W, 3] (RGB)
 
+def overlay_heatmap(img_rgb: np.ndarray, heatmap_rgb: np.ndarray, alpha: float = 0.5) -> np.ndarray:
+    import cv2
+
+    # Assicurati che img_rgb e heatmap_rgb siano in uint8 e nella stessa scala
+    if img_rgb.dtype != np.uint8:
+        img_rgb = (img_rgb * 255).astype(np.uint8)
+    if heatmap_rgb.dtype != np.uint8:
+        heatmap_rgb = (heatmap_rgb * 255).astype(np.uint8)
+
+    # Ridimensiona la heatmap alle dimensioni dell'immagine
+    heatmap_resized = cv2.resize(heatmap_rgb, (img_rgb.shape[1], img_rgb.shape[0]))
+
+    # Sovrapposizione con trasparenza alpha
+    overlay = cv2.addWeighted(img_rgb, 1 - alpha, heatmap_resized, alpha, 0)
+    return overlay
 
 def improve_image(x):
     lab = cv.cvtColor(x, cv.COLOR_RGB2LAB)
