@@ -6,7 +6,7 @@ import os
 from collections import OrderedDict
 from pathlib import Path
 from random import randint
-from typing import Any, override
+from typing import Any, override, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import cv2 as cv
@@ -585,6 +585,40 @@ def plot_report(log_file_train:Path|str, log_file_valid:Path|str, out_dir:Path|s
         plt.title(out_dir.joinpath(f"Graphics of {kt}"))
         plt.legend()
         plt.savefig(out_dir.joinpath(f"graphic_{kt}"))
+
+def getBCEmask(shape: Tuple[int, int, int, int], dim):
+    B, C, H, W = shape
+
+
+    mask = torch.zeros((B, C, H, W), dtype=torch.uint8)
+
+    mask[:, :, :dim, :] = 1    
+    mask[:, :, -dim:, :] = 1    
+    mask[:, :, :, :dim] = 1      
+    mask[:, :, :, -dim:] = 1  
+
+    return mask
+
+class BoundaryAwareBCE(nn.Module):
+    def __init__(self, lambda_w=1.0):
+        super(BoundaryAwareBCE, self).__init__()
+
+        self.lambda_w = lambda_w
+    
+    def forward(self, pred, target, b_mask):
+        assert b_mask.shape == pred.shape == target.shape
+
+        BCE_loss = F.binary_cross_entropy(pred, target, reduction='none')
+        BCE_loss = BCE_loss.mean()
+
+        mask_ones = torch.sum(b_mask == 1)
+
+        boundary_aware = (BCE_loss*b_mask).sum()
+        boundary_aware = (self.lambda_w/mask_ones)*boundary_aware
+        
+
+        return BCE_loss + boundary_aware
+
 
 
 if __name__ == "__main__":
