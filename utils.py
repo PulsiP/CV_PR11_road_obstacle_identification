@@ -55,28 +55,29 @@ class ToBMask(nn.Module):
     One-hot-encoded masck given map definition that map color in specific
     one-hot layer.
     """
-    def __init__(self, map_, size = None, fill = 0):
+    def __init__(self, map_, size = None, fill = 0, add_map = None):
         """"""
         super().__init__()
 
         self.map_ = map_
         self.size = size
         self.fill = fill
+        self.add_map = add_map
 
     @override
     def forward(self, x):
         """
-        Converte immagine RGB [H, W, 3] in maschera [1, H, W] con classi numeriche.
-        Pixel con colori non riconosciuti vengono assegnati a classe 0 (fallback).
+        Converte immagine RGB [H, W, 3] in maschera [C, H, W] codificata in one-hot encoding (con C numero di valori one-hot).
         """
         if self.size:
             x = cv.resize(x, dsize=self.size)
 
-        x = image2BMap(self.map_, x, fill=self.fill)
+        x = image2BMap(self.map_, x, fill=self.fill, add_map=self.add_map)
         x = torch.as_tensor(x, dtype=torch.float32)
-        
-        
+
         return x
+        
+        
 
 
 class TrainNetwork:
@@ -124,8 +125,7 @@ class TrainNetwork:
             bar.set_description(f"training epoch: {epoch}", refresh=True)
 
 
-            #print(f"x shape: {x.shape}")
-            #print(f"y shape: {y.shape}")
+            
             x = x.to(device)
             y = y.squeeze(1).to(device)
 
@@ -143,7 +143,9 @@ class TrainNetwork:
             
             
             y_classes = (torch.argmax(y_pred, dim=1) if self.encode == "index" else F.one_hot(torch.argmax(y_pred, dim=1), num_classes=y_pred.shape[1]).permute(0, 3, 1, 2))
-            
+            #print(f"x shape: {x.shape}")
+            #print(f"y shape: {y.shape}")
+            #print(f"y_pred shape: {y_pred.shape}")
             dice_value += self.dice(y_classes, y.long())
             iou_value += self.iou(y_classes, y.long())
             
@@ -366,7 +368,7 @@ class TrainNetwork:
                    
                     plt.imsave(f"{log_dir}/result_epoch_{epoch}.png", result)
 
-                    varisco_heatmap = compute_varisco_heatmap_rgb(y_pred_logits, 0.3)
+                    varisco_heatmap = compute_varisco_heatmap_rgb(y_pred_logits, 0.1)
                     overlay = overlay_heatmap(np.transpose(img * 255, (1, 2, 0)), varisco_heatmap, alpha=0.5)
 
                     plt.imsave(f"{log_dir}/heatmap_epoch_{epoch}.png", varisco_heatmap)
@@ -411,7 +413,7 @@ def image2Map(map_, x, fill=0):
     return mask
 
 # from RGB color to layers (indexed using TrainId)
-def image2BMap(map_, x, fill=0):
+def image2BMap(map_, x, fill=0, add_map=None):
     h, w, _ = x.shape
     mask = np.full((len(set(map_.values())), h, w), fill_value=fill, dtype=np.uint8)
     for color, class_id in map_.items():
@@ -419,7 +421,20 @@ def image2BMap(map_, x, fill=0):
         match = np.all(x == color, axis=-1)
         mask[class_id][match] = 1
     
+    if add_map:
+        layer = np.full((1, h, w), fill_value=fill, dtype=np.uint8)
+        for color, class_id in map_.items():
+            #print(f"  {color} → {class_id}")
+            match = np.all(x == color, axis=-1)
+            layer[0][match] = 1
+        
+        
+        mask = np.concatenate((mask, layer), axis=0)
+        
+
+
     return mask
+
     
 
 # from layer to RGB color
@@ -452,10 +467,11 @@ def map2Image(map_, x) -> np.ndarray:
     return mask
     
 
-def compute_varisco_heatmap_rgb(logits: torch.Tensor, lambda_thresh: float = 0.3) -> np.ndarray:
+def compute_varisco_heatmap_rgb(probs: torch.Tensor, lambda_thresh: float = 0.3) -> np.ndarray:
     with torch.no_grad():
         # Usa i logits grezzi (senza softmax)
-        prediction_set = (logits > lambda_thresh).float()
+        
+        prediction_set = (probs > lambda_thresh).float()
         
         # Somma le classi attive per pixel
         varisco_map = prediction_set.sum(dim=1).squeeze(0)  # [H, W]
@@ -465,8 +481,6 @@ def compute_varisco_heatmap_rgb(logits: torch.Tensor, lambda_thresh: float = 0.3
         max_val = varisco_map.max()
         if max_val > min_val:
             varisco_map = (varisco_map - min_val) / (max_val - min_val)
-        else:
-            varisco_map = varisco_map * 0  # o lascia invariato se vuoi
 
         # Converte in numpy
         varisco_map_np = varisco_map.cpu().numpy()
@@ -474,8 +488,7 @@ def compute_varisco_heatmap_rgb(logits: torch.Tensor, lambda_thresh: float = 0.3
         # Applica colormap jet
         heatmap_rgb = plt.cm.jet(varisco_map_np)[:, :, :3]
         
-        # Scala in uint8
-        heatmap_rgb = (heatmap_rgb * 255).astype(np.uint8)
+      
 
         return heatmap_rgb
 
