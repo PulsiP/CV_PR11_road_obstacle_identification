@@ -11,18 +11,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 import cv2 as cv
 import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
-from matplotlib import pyplot as plt
 from torch import nn
 from torch.nn import functional as F
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader, Dataset
 from torchmetrics.segmentation import DiceScore, MeanIoU
 from tqdm.auto import tqdm
-
-
 class ToMask(nn.Module):
     """
     Class use to preprocess RGB-Mask for segmentation tasck
@@ -109,7 +107,7 @@ class TrainNetwork:
         epoch_loss = 0
         loss = 0
         batch = 0
-
+        self._loss = self._loss.to(device)
         bar = tqdm(
             desc="training", total=train_size  # type: ignore
         )  # uses len(dataset) instead of dataset.size
@@ -278,8 +276,8 @@ class TrainNetwork:
             batch_size=batch_size,
             shuffle=True,
             pin_memory=True,
-            persistent_workers=True,
             num_workers=8,
+            persistent_workers=True
             
         )
         dataloader_val = DataLoader(
@@ -287,8 +285,8 @@ class TrainNetwork:
             batch_size=batch_size,
             shuffle=False,
             pin_memory=True,
-            persistent_workers=True,
             num_workers=8,
+            persistent_workers=True
         )
         log_train = {
             "epoch"    : [],
@@ -345,13 +343,20 @@ class TrainNetwork:
                     x = img.clone()
                     x = x.unsqueeze(0).to(device)
                     img = img.numpy(force=True)
-
-                    y_pred_logits = model(x)
-                    y_pred = y_pred_logits.argmax(dim=1).cpu().numpy().squeeze(0)
-
-                    y = y.cpu().squeeze(0).numpy()
                     
+                    y_pred = model(x)
+                    y_pred_logits = unknownObjectnessScore(y_pred.squeeze(0)).unsqueeze(0)
+                    if y.shape[-1] > len(map_cls_to_color):
+                        #print(y_pred.shape)
+                        y_pred = y_pred[:, :len(map_cls_to_color), :, :]
+                        #print(y_pred.shape)
+                        y_pred = y_pred.argmax(dim=1).cpu().numpy().squeeze(0)
+                        y = y.cpu().squeeze(0).numpy()
+                        y = y[:len(map_cls_to_color), :, :]
                     
+                    #print(y.shape)
+                    
+                      
 
                     if self.encode == "index":
                         y_pred = map2Image(map_cls_to_color, y_pred)
@@ -368,7 +373,7 @@ class TrainNetwork:
                    
                     plt.imsave(f"{log_dir}/result_epoch_{epoch}.png", result)
 
-                    varisco_heatmap = compute_varisco_heatmap_rgb(y_pred_logits, 0.1)
+                    varisco_heatmap = compute_varisco_heatmap_rgb(y_pred_logits, 0)
                     overlay = overlay_heatmap(np.transpose(img * 255, (1, 2, 0)), varisco_heatmap, alpha=0.5)
 
                     plt.imsave(f"{log_dir}/heatmap_epoch_{epoch}.png", varisco_heatmap)
@@ -415,23 +420,46 @@ def image2Map(map_, x, fill=0):
 # from RGB color to layers (indexed using TrainId)
 def image2BMap(map_, x, fill=0, add_map=None):
     h, w, _ = x.shape
-    mask = np.full((len(set(map_.values())), h, w), fill_value=fill, dtype=np.uint8)
-    for color, class_id in map_.items():
-        #print(f"  {color} → {class_id}")
-        match = np.all(x == color, axis=-1)
-        mask[class_id][match] = 1
+
     
+
+    # # Converti ogni riga in una tupla RGB standard
+    # colors = [tuple(map(int, color)) for color in np.unique(x.reshape(-1, 3), axis=0)]
+    # mask = np.full((len(set(map_.values())), h, w), fill_value=fill, dtype=np.uint8)
+    # for color, class_id in map_.items():
+        
+    #     #print(f"  {color} → {class_id}")
+        
+    #     match = np.all(x == color, axis=-1)
+        
+    #     #if match.sum() == 0: print(color)
+    #     #print(f"{color} -> {match.sum()}")
+        
+    #     mask[class_id][match] = 1
+
+    label_map = np.full((h, w), fill_value=fill,  dtype=np.uint8)
+
+    for color, class_idx in map_.items():
+        mask = np.all(x == color, axis=-1)
+        label_map[mask] = class_idx
+
+    # One-hot encoding
+    mask = np.eye(len(set(map_.values())), dtype=np.uint8)[label_map]
+    mask = mask.transpose((2,0,1))
     if add_map:
         layer = np.full((1, h, w), fill_value=fill, dtype=np.uint8)
-        for color, class_id in map_.items():
+        for color, _ in add_map.items():
+           
             #print(f"  {color} → {class_id}")
             match = np.all(x == color, axis=-1)
             layer[0][match] = 1
-        
-        
         mask = np.concatenate((mask, layer), axis=0)
-        
+    
+    #i = randint(0, 100)
+    #j = randint(0, 100)
 
+    #print(mask[:, i, j])
+    #print(x[i, j, :])
 
     return mask
 
@@ -470,7 +498,7 @@ def map2Image(map_, x) -> np.ndarray:
 def compute_varisco_heatmap_rgb(probs: torch.Tensor, lambda_thresh: float = 0.3) -> np.ndarray:
     with torch.no_grad():
         # Usa i logits grezzi (senza softmax)
-        
+       
         prediction_set = (probs > lambda_thresh).float()
         
         # Somma le classi attive per pixel
@@ -482,6 +510,7 @@ def compute_varisco_heatmap_rgb(probs: torch.Tensor, lambda_thresh: float = 0.3)
         if max_val > min_val:
             varisco_map = (varisco_map - min_val) / (max_val - min_val)
 
+        
         # Converte in numpy
         varisco_map_np = varisco_map.cpu().numpy()
         
@@ -590,7 +619,7 @@ def getBCEmask(shape: Tuple[int, int, int, int], dim):
     B, C, H, W = shape
 
 
-    mask = torch.zeros((B, C, H, W), dtype=torch.uint8)
+    mask = torch.zeros((B, C, W, H), dtype=torch.uint8)
 
     mask[:, :, :dim, :] = 1    
     mask[:, :, -dim:, :] = 1    
@@ -600,26 +629,40 @@ def getBCEmask(shape: Tuple[int, int, int, int], dim):
     return mask
 
 class BoundaryAwareBCE(nn.Module):
-    def __init__(self, lambda_w=1.0):
+    def __init__(self, b_mask, lambda_w=3.0, device="cpu"):
         super(BoundaryAwareBCE, self).__init__()
-
         self.lambda_w = lambda_w
+        self.b_mask = b_mask.to(device)
+        self.device = device
     
-    def forward(self, pred, target, b_mask):
-        assert b_mask.shape == pred.shape == target.shape
-
+    def forward(self, pred, target):
+        #assert self.b_mask.shape == pred.shape == target.shape
+        #print(self.b_mask.shape)
+        #print(pred.shape)
+        #print(target.shape)
+        pred = pred.to(self.device)
+        target = target.to(self.device)
+        pred = F.sigmoid(pred)
         BCE_loss = F.binary_cross_entropy(pred, target, reduction='none')
         BCE_loss = BCE_loss.mean()
 
-        mask_ones = torch.sum(b_mask == 1)
-
-        boundary_aware = (BCE_loss*b_mask).sum()
-        boundary_aware = (self.lambda_w/mask_ones)*boundary_aware
+        mask_ones = torch.sum(self.b_mask == 1)
+        b = (BCE_loss*self.b_mask).sum()
+        boundary_aware = (self.lambda_w/mask_ones)*b
         
-
         return BCE_loss + boundary_aware
 
+def unknownObjectnessScore(pred):
+    pred = F.sigmoid(pred)
 
+    classes = 1 - pred[:-1, :, :]
+    object_  = pred[-1, :, :].unsqueeze(0)
+
+    prod_classes = torch.prod(1 - classes, dim=0, keepdim=True)
+
+    mask = prod_classes * object_
+
+    return mask
 
 if __name__ == "__main__":
     #resize("./Dataset", "./Dataset256x96", "val", (256,96))
