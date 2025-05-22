@@ -202,6 +202,6 @@ class CSDataset(Dataset):
 
 
 if __name__ == "__main__":
-    DatasetFactory("CSF192x512").produce_CS("DatasetFine/train/img", "DatasetFine/train/label", "train", copy_size=(512,192))
-    DatasetFactory("CSF192x512").produce_CS("DatasetFine/val/img", "DatasetFine/val/label", "val", copy_size=(512,192))
+    DatasetFactory("LAF192x512").produce_Obs("LAF/train/img", "LAF/train/label", "train", copy_size=(512,192))
+    DatasetFactory("LAF192x512").produce_Obs("LAF/val/img", "LAF/val/label", "val", copy_size=(512,192))
     

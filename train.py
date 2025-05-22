@@ -8,7 +8,7 @@ from torchvision.transforms import v2
 from data import CSDataset
 from globals import *
 from network import *
-from utils import ToBMask, ToMask, TrainNetwork, plot_report, BoundaryAwareBCE, getBCEmask
+from utils import ToBMask, ToMask, TrainNetwork,miscoverage_loss, plot_report, BoundaryAwareBCE
 
 import torch.nn.functional as F
 
@@ -30,25 +30,8 @@ args = parser.parse_args()
 DEVICE = ('cuda' if torch.cuda.is_available() else 'cpu')
 match args.dataset:
 
-    case "Fine256x96":
-        ENCODE = "index"
-        DATASET_NAME = "Fine256x96"
-        MAP_COLOR2LABEL = CS_COLOR2LABEL
-        MAP_LABEL2COLOR = CS_LABEL2COLOR
-        FILL = 0
-        MASK_FN = ToMask(MAP_COLOR2LABEL, fill=FILL)
-        NUM_CLS = len(MAP_LABEL2COLOR)
 
-    case "Fine512x192":
-        ENCODE = "index"
-        DATASET_NAME = "Fine512x192"
-        MAP_COLOR2LABEL = CS_COLOR2LABEL
-        MAP_LABEL2COLOR = CS_LABEL2COLOR
-        FILL = 0
-        MASK_FN = ToMask(MAP_COLOR2LABEL, fill=FILL)
-        NUM_CLS = len(MAP_LABEL2COLOR)
-
-    case "Fine512x192_OH":
+    case "CSF512x192_OH":
         ENCODE = "one-hot"
         DATASET_NAME = "CSF192x512"
         MAP_COLOR2LABEL = CS_COLOR2LABEL
@@ -57,33 +40,16 @@ match args.dataset:
         MASK_FN = ToBMask(MAP_COLOR2LABEL, fill=FILL, add_map=CS_PLUS)
         NUM_CLS = len(MAP_LABEL2COLOR) + 1
 
-    case "Fine512x192_BS":
+
+    case "LAF512x192_OH":
         ENCODE = "one-hot"
-        DATASET_NAME = "Fine512x192"
-        MAP_COLOR2LABEL = CSB_COLOR2LABEL
-        MAP_LABEL2COLOR = CSB_LABEL2COLOR
-        FILL = 0
-        MASK_FN = ToBMask(MAP_COLOR2LABEL, fill=FILL)
-        NUM_CLS = len(MAP_LABEL2COLOR)
-
-    case "Obstacle512x192":
-        ENCODE = "index"
-        DATASET_NAME = "Obstacle512x192"
-        MAP_COLOR2LABEL = OBS_COLOR2LABEL
-        MAP_LABEL2COLOR = 0
-        FILL = 0
-        MASK_FN = ToMask(MAP_COLOR2LABEL, fill=FILL)
-        NUM_CLS = len(MAP_LABEL2COLOR)
-
-    case "Obstacle512x192_OH":
-        ENCODE = "one-hot"
-        DATASET_NAME = "Obstacle512x192"
-        MAP_COLOR2LABEL = OBS_COLOR2LABEL
-        MAP_LABEL2COLOR = OBS_LABEL2COLOR
+        DATASET_NAME = "LAF192x512"
+        MAP_COLOR2LABEL = LAF_COLOR2LABEL
+        MAP_LABEL2COLOR = LAF_LABEL2COLOR
 
         FILL = 0
-        MASK_FN = ToBMask(MAP_COLOR2LABEL, fill=FILL)
-        NUM_CLS = len(MAP_LABEL2COLOR)
+        MASK_FN = ToBMask(MAP_COLOR2LABEL, fill=FILL, add_map=LAF_PLUS)
+        NUM_CLS = len(MAP_LABEL2COLOR) + 1
 
     case _:
         raise ValueError("Dataset Not Found")
@@ -191,6 +157,9 @@ m, _, _ = trainer.train(
     data_train,
     data_test,
     args.log_dir,
+    0.1,
+    miscoverage_loss,
+    0,
     epochs=args.epochs,
     batch_size=16,
     map_cls_to_color=MAP_LABEL2COLOR,

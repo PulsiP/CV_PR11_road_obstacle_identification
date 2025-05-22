@@ -21,6 +21,7 @@ from torch.optim import Optimizer
 from torch.utils.data import DataLoader, Dataset
 from torchmetrics.segmentation import DiceScore, MeanIoU
 from tqdm.auto import tqdm
+
 class ToMask(nn.Module):
     """
     Class use to preprocess RGB-Mask for segmentation tasck
@@ -75,8 +76,6 @@ class ToBMask(nn.Module):
 
         return x
         
-        
-
 
 class TrainNetwork:
     """
@@ -253,6 +252,10 @@ class TrainNetwork:
         train_set: Dataset,
         validation_set: Dataset,
         log_dir: Path | str,
+        risk: float,
+        loss_risk,
+        t: float = 0,
+        B: float = 1,
         epochs: int = 1,
         batch_size: int = 1,
         objective: str = "loss",
@@ -381,6 +384,16 @@ class TrainNetwork:
 
                     plt.imsave(f"{log_dir}/heatmap_epoch_{epoch}.png", varisco_heatmap)
                     plt.imsave(f"{log_dir}/heatmap_overlay_epoch_{epoch}.png", overlay)
+        
+        
+        
+        ############################################################################################
+        # Conformal Semantic Image Segmentation: Post-hoc Quantification of Predictive Uncertainty #
+        ############################################################################################
+
+        
+
+        
         ###########
         # Logging #
         ###########
@@ -506,7 +519,6 @@ def compute_varisco_heatmap_rgb(uos_map: torch.Tensor) -> np.ndarray:
     min_val, max_val = varisco_map.min(), varisco_map.max()
     norm_map = (varisco_map - min_val) / (max_val - min_val + 1e-8)
     return (plt.cm.jet(norm_map)[:, :, :3] * 255).astype(np.uint8)
-
 
 
 def overlay_heatmap(img_rgb: np.ndarray, heatmap_rgb: np.ndarray, alpha: float = 0.5) -> np.ndarray:
@@ -644,11 +656,213 @@ class BoundaryAwareBCE(nn.Module):
         
         return BCE_loss + boundary_aware
 
+# Conformal Semantic Image Segmentation: Post-hoc Quantification of Predictive Uncertainty
+def lasc(X, lamb): # or Least Ambiguous Set-Valued Classifiers (LAC)
+    """ 
+    Args:
+
+        X:
+        lamb: 
+    
+    Return:
+        multi-labeled masks
+    """
+    assert  0 <= lamb <= 1.0
+    
+    # X:[B,C,H,W]
+    X = torch.permute(X, dims=(0,2,3,1)) # X:[B,H,W,C]
+    X = F.softmax(X, dim=-1) # pixel-wise softmax-scores
+
+    #  fallback
+
+    _ , top1_indices = X.max(dim=-1) # top1_indices will be (B, H, W)
+
+    # Create a tensor for the top-1 classes, initialized to zeros
+    # This will be used to ensure at least one class is active for each pixel
+    # Use torch.zeros_like for shape matching
+    top1_mask_fill = torch.zeros_like(X).long()
+
+    # Fill the top-1_mask_fill at the top-1 indices with 1s
+    # Unsqueeze top1_indices to match dimensions for scatter_
+    # top1_indices needs to be (B, H, W, 1) for scatter_
+    top1_mask_fill.scatter_(dim=-1, index=top1_indices.unsqueeze(-1), value=1)
+    
+    # Combine the thresholded mask with the top-1 fallback
+    # For each pixel, if the thresholded mask is all zeros (empty),
+    # then include the top-1 class.
+    # This can be done by taking the element-wise OR (max) of the two masks.
+    # If mask[b, h, w, k] is 1 OR top1_mask_fill[b, h, w, k] is 1, then the final mask element is 1.
+    mask = (X >= 1 - lamb).long()
+
+    final_mask = torch.max(mask, top1_mask_fill)
+    final_mask = torch.permute(final_mask, (0,3,1,2))
+
+    return final_mask
+
+def empirical_risk(X, Y, loss, lamb=0.95):
+    # X:[B,C,H,W]
+    # Y:[B,C,H,W]
+    # loss: f(cx, y) -> float
+    R = 0
+    n = X.shape[0]
+    for  x, y in zip(X, Y): # for i=1 to i=n
+        x = x.unsqueeze(0)
+        cx = lasc(x, lamb)
+        x = x.squeeze(0)
+        R += loss(cx, y)
+    
+
+    return R/n
+
+def calibration(X, Y, B, alpha, loss_fn, max_steps=20, tol=1e-4):
+    """
+    Calibrazione di λ usando ricerca dicotomica.
+    Trova il più piccolo λ tale che adjusted risk ≤ alpha.
+    """
+    n = X.shape[0]
+    low, high = 0.0, 1.0
+    best_lambda = 1.0  # fallback se nessun λ soddisfa la condizione
+
+    for step in range(max_steps):
+        mid = (low + high) / 2.0
+        Rhat = empirical_risk(X, Y, loss_fn, mid)
+        adjusted_risk = (n / (n + 1)) * Rhat + B / (n + 1)
+
+        
+
+        if adjusted_risk <= alpha:
+            best_lambda = mid
+            high = mid  # cerca valori più piccoli (inf{λ})
+        else:
+            low = mid  # cerca valori più grandi
+        print(f"[step {step}] λ = {mid:.5f}, adjusted risk = {adjusted_risk:.5f} empirical risk {Rhat:.5f}")
+        if high - low < tol:
+            break
+
+    return best_lambda
+
+def binary_loss(Z, Y):
+    # Z: [C,H,W]
+    # Y: [C,H,W]
+    
+    return int(torch.all(Z < Y))
+
+def binary_loss_threshold (Z, Y, t=0.1):
+    return int((torch.sum(Z*Y) / torch.sum(Y)) < t)
+
+def miscoverage_loss(Z, Y):
+    return 1 - (torch.sum(Z*Y) / torch.sum(Y))
+    
+
+def uncertainty_heatmap(img, Y_pred, Y):
+    """
+        Y_pred :        [B, C, H, W]
+        Y      : Tensor [B, C, H, W]
+
+        
+    """
+    lam = calibration(Y_pred, Y, 1, 0.12, miscoverage_loss)
+    lam = lam 
+    mask = lasc(Y_pred, lam) # [B, C, H, W]
+
+    mask = mask[10, :, :, :] # primo elemento del batch
+    img = img[10, :, :, :,]
+    img = img.numpy(force=True)
+
+    print(mask)
+    mask = mask.sum(dim=0, keepdim=True)
+    print(mask)
+    vh = compute_varisco_heatmap_rgb(mask)
+    print(vh.shape)
+    
+    hm = overlay_heatmap(np.transpose(img * 255, (1, 2, 0)), vh, 0.5)
+
+
+
+    plt.figure(figsize=(8, 4))
+    img = plt.imshow(hm)
+
+
+    plt.title("heatmap")
+    plt.axis('off')
+    plt.tight_layout()
+    plt.show()
 
 
 if __name__ == "__main__":
     #resize("./Dataset", "./Dataset256x96", "val", (256,96))
-    plot_report("./Sigmoid/train.csv", "./Sigmoid/eval.csv")
+    #plot_report("./Sigmoid/train.csv", "./Sigmoid/eval.csv")
+
+    # X = torch.randn(10, 8, 10, 10)
+    # Y = torch.randn(10, 8, 10, 10)
+
+    # m = lasc(X, 0)
+    
+    
+    # r = empirical_risk(X, Y, binary_loss_threshold)
+    # lam = calibration(X, Y, 1, 0.01, binary_loss_threshold)
+
+    # print(f"lambda optimal lam={lam:.5f}")
+
+    #t = torch.rand(3, 4)
+    #print(t)
+
+    # Ricrea il modello con la stessa architettura
+    import segmentation_models_pytorch as smp
+    from data import CSDataset
+    from torchvision.transforms import v2
+
+    from globals import *
+
+
+    ENCODE = "one-hot"
+    DATASET_NAME = "CSF192x512"
+    MAP_COLOR2LABEL = CS_COLOR2LABEL
+    MAP_LABEL2COLOR = CS_LABEL2COLOR
+    FILL = 0
+    batch_size = 32
+
+
+    MASK_FN = ToBMask(MAP_COLOR2LABEL, fill=FILL, add_map=CS_PLUS)
+    NUM_CLS = len(MAP_LABEL2COLOR) + 1
+
+    DEVICE = ('cuda' if torch.cuda.is_available() else 'cpu')
+
+    model = smp.DeepLabV3Plus(
+        encoder_name="se_resnet50",
+        encoder_weights="imagenet",  # o None, se i pesi personalizzati includono anche l'encoder
+        classes=NUM_CLS,
+        activation=None,
+
+    )
+
+    # Carica i pesi
+    state_dict = torch.load("./MyNet/best_weights_epoch_4.pth", map_location="cpu")
+    model.load_state_dict(state_dict)
+
+    data_test = CSDataset(
+        f"{DATASET_NAME}/val",
+        transform_x=v2.Compose([v2.ToImage(), v2.ToDtype(dtype=torch.float32, scale=True)]),
+        transform_y=v2.Compose([MASK_FN]),
+    )
+
+
+    dataloader_val = DataLoader(data_test, batch_size=batch_size, shuffle=True)
+
+    img, y, _ = next(iter(dataloader_val))
+
+    img = img.to(DEVICE)
+    model = model.to(DEVICE)
+
+
+    with torch.no_grad():
+        y_pred = model(img)
+
+    y_pred = y_pred.cpu()
+
+    uncertainty_heatmap(img, y_pred[:, :-1, :,:], y[:, :-1, :,:])
+
+
 
 
         
