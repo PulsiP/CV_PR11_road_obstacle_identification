@@ -372,10 +372,19 @@ class TrainNetwork:
                     result = np.hstack((np.permute_dims(img*255, (1,2,0)), y, y_pred)).astype(np.uint8)
                    
                     plt.imsave(f"{log_dir}/result_epoch_{epoch}.png", result)
+                    
+                    uos_map = unknownObjectnessScore(y_pred_logits)  
+                    print("DEBUG — uos_map shape:", uos_map.shape)
+                    print("DEBUG — uos_map min/max:", uos_map.min().item(), uos_map.max().item())
 
-                    varisco_heatmap = compute_varisco_heatmap_rgb(y_pred_logits, 0)
+                    varisco_heatmap = compute_varisco_heatmap_rgb(uos_map)
+                    print("DEBUG — varisco_heatmap shape:", varisco_heatmap.shape)
+
                     overlay = overlay_heatmap(np.transpose(img * 255, (1, 2, 0)), varisco_heatmap, alpha=0.5)
 
+                    print("DEBUG — uos_map:", uos_map.shape)
+                    print("DEBUG — varisco_heatmap:", varisco_heatmap.shape)
+                        
                     plt.imsave(f"{log_dir}/heatmap_epoch_{epoch}.png", varisco_heatmap)
                     plt.imsave(f"{log_dir}/heatmap_overlay_epoch_{epoch}.png", overlay)
         ###########
@@ -393,6 +402,24 @@ class TrainNetwork:
         best_weigths = torch.load(old_weights, weights_only=True)
         self._model.load_state_dict(best_weigths)
         return self._model, log_train, log_eval
+
+
+
+def compute_varisco_heatmap_rgb(uos_map: torch.Tensor) -> np.ndarray:
+    """Normalizza la mappa UOS e restituisce una heatmap RGB."""
+    varisco_map = uos_map.squeeze(0).cpu().numpy()
+    min_val, max_val = varisco_map.min(), varisco_map.max()
+    norm_map = (varisco_map - min_val) / (max_val - min_val + 1e-8)
+    return (plt.cm.jet(norm_map)[:, :, :3] * 255).astype(np.uint8)
+
+
+def overlay_heatmap(img_rgb: np.ndarray, heatmap_rgb: np.ndarray, alpha: float = 0.5) -> np.ndarray:
+    """Restituisce l’overlay tra immagine RGB e heatmap."""
+    import cv2
+    img_rgb = img_rgb.astype(np.uint8)
+    heatmap_rgb = heatmap_rgb.astype(np.uint8)
+    heatmap_resized = cv2.resize(heatmap_rgb, (img_rgb.shape[1], img_rgb.shape[0]))
+    return cv2.addWeighted(img_rgb, 1 - alpha, heatmap_resized, alpha, 0)
 
 
 def show_tensor(tensor: torch.Tensor, cmap: str = "gray") -> None:
@@ -494,49 +521,6 @@ def map2Image(map_, x) -> np.ndarray:
 
     return mask
     
-
-def compute_varisco_heatmap_rgb(probs: torch.Tensor, lambda_thresh: float = 0.3) -> np.ndarray:
-    with torch.no_grad():
-        # Usa i logits grezzi (senza softmax)
-       
-        prediction_set = (probs > lambda_thresh).float()
-        
-        # Somma le classi attive per pixel
-        varisco_map = prediction_set.sum(dim=1).squeeze(0)  # [H, W]
-        
-        # Normalizza tra 0 e 1 tenendo conto del minimo
-        min_val = varisco_map.min()
-        max_val = varisco_map.max()
-        if max_val > min_val:
-            varisco_map = (varisco_map - min_val) / (max_val - min_val)
-
-        
-        # Converte in numpy
-        varisco_map_np = varisco_map.cpu().numpy()
-        
-        # Applica colormap jet
-        heatmap_rgb = plt.cm.jet(varisco_map_np)[:, :, :3]
-        
-      
-
-        return heatmap_rgb
-
-
-def overlay_heatmap(img_rgb: np.ndarray, heatmap_rgb: np.ndarray, alpha: float = 0.5) -> np.ndarray:
-    import cv2
-
-    # Assicurati che img_rgb e heatmap_rgb siano in uint8 e nella stessa scala
-    if img_rgb.dtype != np.uint8:
-        img_rgb = (img_rgb * 255).astype(np.uint8)
-    if heatmap_rgb.dtype != np.uint8:
-        heatmap_rgb = (heatmap_rgb * 255).astype(np.uint8)
-
-    # Ridimensiona la heatmap alle dimensioni dell'immagine
-    heatmap_resized = cv2.resize(heatmap_rgb, (img_rgb.shape[1], img_rgb.shape[0]))
-
-    # Sovrapposizione con trasparenza alpha
-    overlay = cv2.addWeighted(img_rgb, 1 - alpha, heatmap_resized, alpha, 0)
-    return overlay
 
 def improve_image(x):
     lab = cv.cvtColor(x, cv.COLOR_RGB2LAB)
@@ -652,17 +636,15 @@ class BoundaryAwareBCE(nn.Module):
         
         return BCE_loss + boundary_aware
 
-def unknownObjectnessScore(pred):
+def unknownObjectnessScore(pred: torch.Tensor) -> torch.Tensor:
+    """Map [1, H, W] with Uknown Objectness Score."""
+    if pred.dim() == 4:
+        pred = pred.squeeze(0)  # [C, H, W]
+
     pred = F.sigmoid(pred)
-
-    classes = 1 - pred[:-1, :, :]
-    object_  = pred[-1, :, :].unsqueeze(0)
-
-    prod_classes = torch.prod(1 - classes, dim=0, keepdim=True)
-
-    mask = prod_classes * object_
-
-    return mask
+    classes = 1 - pred[:-1]           # [C-1, H, W]
+    object_score = pred[-1:]         # [1, H, W]
+    return torch.prod(classes, dim=0, keepdim=True) * object_score  # [1, H, W]
 
 if __name__ == "__main__":
     #resize("./Dataset", "./Dataset256x96", "val", (256,96))
