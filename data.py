@@ -8,7 +8,10 @@ import shutil
 from pathlib import Path
 from typing import Tuple, override
 
+import matplotlib.pyplot as plt
 import cv2 as cv
+import numpy as np
+import torch
 from numpy import ndarray
 from torch.utils.data import Dataset
 from torchvision.transforms.v2 import Compose
@@ -48,7 +51,7 @@ class DatasetFactory:
                 nn = ids + file_.suffix
                 if copy_size:
                     image = cv.imread(file_)
-                    image = cv.resize(image, copy_size, interpolation=4)
+                    image = cv.resize(image, copy_size, interpolation=cv.INTER_LANCZOS4)
                     cv.imwrite(img_path.joinpath(nn), image)
                 else:    
                     shutil.copy2(file_, img_path.joinpath(nn))
@@ -63,7 +66,7 @@ class DatasetFactory:
 
                 if copy_size:
                     image = cv.imread(file_)
-                    image = cv.resize(image, copy_size, interpolation=4)
+                    image = cv.resize(image, copy_size, interpolation=cv.INTER_NEAREST)
                     cv.imwrite(label_path.joinpath(nn), image)
                      
                 else:
@@ -101,7 +104,7 @@ class DatasetFactory:
                 nn = ids + idds + file_.suffix
                 if copy_size:
                     image = cv.imread(file_)
-                    image = cv.resize(image, copy_size, interpolation=4)
+                    image = cv.resize(image, copy_size, interpolation=cv.INTER_LANCZOS4)
                     cv.imwrite(img_path.joinpath(nn), image)
                 else:    
                     shutil.copy2(file_, img_path.joinpath(nn))
@@ -115,7 +118,7 @@ class DatasetFactory:
 
                 if copy_size:
                     image = cv.imread(file_)
-                    image = cv.resize(image, copy_size, interpolation=4)
+                    image = cv.resize(image, copy_size, interpolation=cv.INTER_NEAREST)
                     cv.imwrite(label_path.joinpath(nn), image)
                      
                 else:
@@ -141,6 +144,7 @@ class CSDataset(Dataset):
         dataset_path: Path | str,
         transform_x: Compose | None = None,
         transform_y: Compose | None = None,
+        mask_s: Tuple[int, int] = (2,2)
     ):
         """
 
@@ -155,6 +159,7 @@ class CSDataset(Dataset):
 
         self.transform_x = transform_x
         self.transform_y = transform_y
+        self.mask_s = mask_s
         self._x = list(self.base_path.joinpath("img").glob("*.png"))
         self._y = list(self.base_path.joinpath("label").glob("*.png"))
         self._label = [path.stem for path in self._x]
@@ -172,7 +177,13 @@ class CSDataset(Dataset):
     def __getitem__(self, index) -> Tuple[ndarray, ndarray, int]:
         x = cv.cvtColor(cv.imread(self._x[index]), cv.COLOR_BGR2RGB)
         y = cv.cvtColor(cv.imread(self._y[index]), cv.COLOR_BGR2RGB)
-        l = self._label[index]
+        l = cv.Canny(y, 0.2,0.5)
+        
+        l = np.asarray(l == 255, dtype=np.uint8)
+        l = cv.dilate(l, np.ones(self.mask_s, np.uint8), iterations=2) 
+        
+        
+        
 
         x = improve_image(x)
 
@@ -181,11 +192,16 @@ class CSDataset(Dataset):
 
         if self.transform_y:
             y = self.transform_y(y)
+        
+        _, h, w = y.shape
+        l = cv.resize(l, dsize=(w,h), interpolation=cv.INTER_LINEAR)
+        l = torch.as_tensor(l, dtype=torch.float32).unsqueeze(0)
+        
 
         return (x, y, l)
 
 
 if __name__ == "__main__":
-    DatasetFactory("ObstacleF").produce_Obs("Obstacle/train/img", "Obstacle/train/label", "train")
-    DatasetFactory("ObstacleF").produce_Obs("Obstacle/val/img", "Obstacle/val/label", "val")
+    DatasetFactory("CSF192x512").produce_CS("DatasetFine/train/img", "DatasetFine/train/label", "train", copy_size=(512,192))
+    DatasetFactory("CSF192x512").produce_CS("DatasetFine/val/img", "DatasetFine/val/label", "val", copy_size=(512,192))
     

@@ -50,7 +50,7 @@ match args.dataset:
 
     case "Fine512x192_OH":
         ENCODE = "one-hot"
-        DATASET_NAME = "Fine512x192"
+        DATASET_NAME = "CSF192x512"
         MAP_COLOR2LABEL = CS_COLOR2LABEL
         MAP_LABEL2COLOR = CS_LABEL2COLOR
         FILL = 0
@@ -118,7 +118,7 @@ match args.model:
     case "DeepLab":
         # Advanced Encoder-decoder newtwork for segmentation tasck
         model = DeepLabV3Plus(
-            encoder_name="resnet101",  # backbone
+            encoder_name="resnet50",  # backbone
             encoder_weights="imagenet",  # pre-trained
             in_channels=3,  # in-channels
             classes=NUM_CLS,  # num of classes
@@ -144,7 +144,7 @@ match args.model:
 
     case "Unet++":
         model = smp.UnetPlusPlus(
-            encoder_name="resnet50",
+            encoder_name="resnet152",
             classes=NUM_CLS,
             encoder_depth=3,
             decoder_channels=(256, 128, 64),
@@ -165,14 +165,13 @@ match args.model:
             activation=None,
         )
 
-        optim = torch.optim.Adamax(
-            model.parameters(), lr=0.002, weight_decay=1e-4
+        optim = torch.optim.SGD(
+            model.parameters(), lr=0.01, weight_decay=1e-4, momentum=0.9
         )
-        mask = getBCEmask((32, NUM_CLS, 512, 192), dim=20)
         
 
         hyper_parameters = {
-            "loss": BoundaryAwareBCE(mask,3,DEVICE),
+            "loss": BoundaryAwareBCE(lambda_w=3.0),
             "optimizer": optim,
         }
         # scheduler = PolynomialLR(optimizer=optim, power=0.9, total_iters=args.epochs)
@@ -193,7 +192,7 @@ m, _, _ = trainer.train(
     data_test,
     args.log_dir,
     epochs=args.epochs,
-    batch_size=32,
+    batch_size=16,
     map_cls_to_color=MAP_LABEL2COLOR,
 )
 plot_report(

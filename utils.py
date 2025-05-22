@@ -119,13 +119,15 @@ class TrainNetwork:
         self.iou.reset()
         dice_value = 0
         iou_value  = 0
-        for x, y, _ in dataloader_train:
+        for x, y, m in dataloader_train:
             bar.set_description(f"training epoch: {epoch}", refresh=True)
 
 
             
             x = x.to(device)
             y = y.squeeze(1).to(device)
+            m = m.to(device)
+
 
             batch += 1
             batch_len = len(y)
@@ -147,7 +149,7 @@ class TrainNetwork:
             dice_value += self.dice(y_classes, y.long())
             iou_value += self.iou(y_classes, y.long())
             
-            loss = loss_fn(y_pred, y)
+            loss = loss_fn(y_pred, y, m)
             loss_v = loss.item()
             epoch_loss += loss_v
             loss.backward()
@@ -204,12 +206,13 @@ class TrainNetwork:
         
         dice_value = 0
         iou_value  = 0
-        for x, y, _ in dataloader_val:
+        for x, y, m in dataloader_val:
 
             with torch.no_grad():
                 bar.set_description(f"validation epoch: {epoch}", refresh=True)
                 x = x.to(device)
                 y = y.squeeze(1).to(device)
+                m = m.to(device)
 
                 batch += 1
                 batch_len = len(y)
@@ -221,7 +224,7 @@ class TrainNetwork:
                 y_classes = (torch.argmax(y_pred, dim=1) if self.encode == "index" else F.one_hot(torch.argmax(y_pred, dim=1), num_classes=y_pred.shape[1]).permute(0, 3, 1, 2))
                 dice_value += self.dice(y_classes, y.long())
                 iou_value  += self.iou(y_classes, y.long())
-                loss = loss_fn(y_pred, y)
+                loss = loss_fn(y_pred, y, m)
 
                 loss_v = loss.item()
                 epoch_loss += loss_v
@@ -276,7 +279,7 @@ class TrainNetwork:
             batch_size=batch_size,
             shuffle=True,
             pin_memory=True,
-            num_workers=8,
+            num_workers=16,
             persistent_workers=True
             
         )
@@ -285,7 +288,7 @@ class TrainNetwork:
             batch_size=batch_size,
             shuffle=False,
             pin_memory=True,
-            num_workers=8,
+            num_workers=16,
             persistent_workers=True
         )
         log_train = {
@@ -372,19 +375,10 @@ class TrainNetwork:
                     result = np.hstack((np.permute_dims(img*255, (1,2,0)), y, y_pred)).astype(np.uint8)
                    
                     plt.imsave(f"{log_dir}/result_epoch_{epoch}.png", result)
-                    
-                    uos_map = unknownObjectnessScore(y_pred_logits)  
-                    print("DEBUG — uos_map shape:", uos_map.shape)
-                    print("DEBUG — uos_map min/max:", uos_map.min().item(), uos_map.max().item())
 
-                    varisco_heatmap = compute_varisco_heatmap_rgb(uos_map)
-                    print("DEBUG — varisco_heatmap shape:", varisco_heatmap.shape)
-
+                    varisco_heatmap = compute_varisco_heatmap_rgb(y_pred_logits.squeeze(0))
                     overlay = overlay_heatmap(np.transpose(img * 255, (1, 2, 0)), varisco_heatmap, alpha=0.5)
 
-                    print("DEBUG — uos_map:", uos_map.shape)
-                    print("DEBUG — varisco_heatmap:", varisco_heatmap.shape)
-                        
                     plt.imsave(f"{log_dir}/heatmap_epoch_{epoch}.png", varisco_heatmap)
                     plt.imsave(f"{log_dir}/heatmap_overlay_epoch_{epoch}.png", overlay)
         ###########
@@ -402,24 +396,6 @@ class TrainNetwork:
         best_weigths = torch.load(old_weights, weights_only=True)
         self._model.load_state_dict(best_weigths)
         return self._model, log_train, log_eval
-
-
-
-def compute_varisco_heatmap_rgb(uos_map: torch.Tensor) -> np.ndarray:
-    """Normalizza la mappa UOS e restituisce una heatmap RGB."""
-    varisco_map = uos_map.squeeze(0).cpu().numpy()
-    min_val, max_val = varisco_map.min(), varisco_map.max()
-    norm_map = (varisco_map - min_val) / (max_val - min_val + 1e-8)
-    return (plt.cm.jet(norm_map)[:, :, :3] * 255).astype(np.uint8)
-
-
-def overlay_heatmap(img_rgb: np.ndarray, heatmap_rgb: np.ndarray, alpha: float = 0.5) -> np.ndarray:
-    """Restituisce l’overlay tra immagine RGB e heatmap."""
-    import cv2
-    img_rgb = img_rgb.astype(np.uint8)
-    heatmap_rgb = heatmap_rgb.astype(np.uint8)
-    heatmap_resized = cv2.resize(heatmap_rgb, (img_rgb.shape[1], img_rgb.shape[0]))
-    return cv2.addWeighted(img_rgb, 1 - alpha, heatmap_resized, alpha, 0)
 
 
 def show_tensor(tensor: torch.Tensor, cmap: str = "gray") -> None:
@@ -521,6 +497,36 @@ def map2Image(map_, x) -> np.ndarray:
 
     return mask
     
+def compute_varisco_heatmap_rgb(uos_map: torch.Tensor) -> np.ndarray:
+    """Normalizza la mappa UOS e restituisce una heatmap RGB."""
+
+    varisco_map = uos_map.squeeze(0).cpu().numpy()
+
+    
+    min_val, max_val = varisco_map.min(), varisco_map.max()
+    norm_map = (varisco_map - min_val) / (max_val - min_val + 1e-8)
+    return (plt.cm.jet(norm_map)[:, :, :3] * 255).astype(np.uint8)
+
+
+
+def overlay_heatmap(img_rgb: np.ndarray, heatmap_rgb: np.ndarray, alpha: float = 0.5) -> np.ndarray:
+    """Restituisce l’overlay tra immagine RGB e heatmap."""
+    import cv2
+    img_rgb = img_rgb.astype(np.uint8)
+    heatmap_rgb = heatmap_rgb.astype(np.uint8)
+    #print(heatmap_rgb.shape)
+    #heatmap_resized = cv2.resize(heatmap_rgb, (img_rgb.shape[1], img_rgb.shape[0]))
+    return cv2.addWeighted(img_rgb, 1 - alpha, heatmap_rgb, alpha, 0)
+
+def unknownObjectnessScore(pred: torch.Tensor) -> torch.Tensor:
+    """Map [1, H, W] with Uknown Objectness Score."""
+    if pred.dim() == 4:
+        pred = pred.squeeze(0)  # [C, H, W]
+
+    pred = F.sigmoid(pred)
+    classes = 1 - pred[:-1]           # [C-1, H, W]
+    object_score = pred[-1:]         # [1, H, W]
+    return torch.prod(classes, dim=0, keepdim=True)  * object_score  # [1, H, W]
 
 def improve_image(x):
     lab = cv.cvtColor(x, cv.COLOR_RGB2LAB)
@@ -613,38 +619,23 @@ def getBCEmask(shape: Tuple[int, int, int, int], dim):
     return mask
 
 class BoundaryAwareBCE(nn.Module):
-    def __init__(self, b_mask, lambda_w=3.0, device="cpu"):
+    def __init__(self, lambda_w=3.0):
         super(BoundaryAwareBCE, self).__init__()
         self.lambda_w = lambda_w
-        self.b_mask = b_mask.to(device)
-        self.device = device
     
-    def forward(self, pred, target):
-        #assert self.b_mask.shape == pred.shape == target.shape
-        #print(self.b_mask.shape)
-        #print(pred.shape)
-        #print(target.shape)
-        pred = pred.to(self.device)
-        target = target.to(self.device)
+    def forward(self, pred, target, b_mask):
+
         pred = F.sigmoid(pred)
         BCE_loss = F.binary_cross_entropy(pred, target, reduction='none')
         BCE_loss = BCE_loss.mean()
 
-        mask_ones = torch.sum(self.b_mask == 1)
-        b = (BCE_loss*self.b_mask).sum()
+        mask_ones = torch.sum(b_mask == 1)
+        b = (BCE_loss*b_mask).sum()
         boundary_aware = (self.lambda_w/mask_ones)*b
         
         return BCE_loss + boundary_aware
 
-def unknownObjectnessScore(pred: torch.Tensor) -> torch.Tensor:
-    """Map [1, H, W] with Uknown Objectness Score."""
-    if pred.dim() == 4:
-        pred = pred.squeeze(0)  # [C, H, W]
 
-    pred = F.sigmoid(pred)
-    classes = 1 - pred[:-1]           # [C-1, H, W]
-    object_score = pred[-1:]         # [1, H, W]
-    return torch.prod(classes, dim=0, keepdim=True) * object_score  # [1, H, W]
 
 if __name__ == "__main__":
     #resize("./Dataset", "./Dataset256x96", "val", (256,96))
