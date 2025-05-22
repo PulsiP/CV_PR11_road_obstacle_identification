@@ -528,6 +528,15 @@ def unknownObjectnessScore(pred: torch.Tensor) -> torch.Tensor:
     object_score = pred[-1:]         # [1, H, W]
     return torch.prod(classes, dim=0, keepdim=True)  * object_score  # [1, H, W]
 
+
+def ObjectnessScore(pred: torch.Tensor) -> torch.Tensor:
+    """Map [1, H, W] with Uknown Objectness Score."""
+    if pred.dim() == 4:
+        pred = pred.squeeze(0) 
+
+    object_score = pred[-1:]         
+    return object_score  
+
 def improve_image(x):
     lab = cv.cvtColor(x, cv.COLOR_RGB2LAB)
     # Separare i canali
