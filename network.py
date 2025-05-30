@@ -1,12 +1,10 @@
 import abc
-import segmentation_models_pytorch as smp
+import torch
 import torch.nn.functional as F
 from torch import nn
 from torchvision import models
 from typing import override
 from torchvision.models.vgg import VGG19_Weights
-from torchvision.models.resnet import ResNet50_Weights
-from torchvision.models.segmentation.deeplabv3 import DeepLabHead
 
 class BaseParams(abc.ABC):
     def __init__(self):
@@ -54,75 +52,21 @@ class FCN(nn.Module):
         )
         return segmentation_map
 
-
-
-class RNParams(BaseParams):
-    def __init__(self, num_classes):
-        super().__init__()
-        self.num_classes = num_classes
-
-class UnetPlusPlus(nn.Module):
-    def __init__(self, output_classes):
-        super(UnetPlusPlus, self).__init__()
-        self.backbone = smp.UnetPlusPlus(classes=output_classes)
+class BoundaryAwareBCE(nn.Module):
+    def __init__(self, lambda_w=3.0):
+        super(BoundaryAwareBCE, self).__init__()
+        self.lambda_w = lambda_w
     
-    @override
-    def forward(self, x):
-        x = self.backbone(x)
-        x = F.softmax(x, dim=1)
-        return x
+    def forward(self, pred, target, b_mask):
 
-class ResNetSegmentation(nn.Module):
-    """
-    Simple network for semantic segmentation based on encoder-decoder architecture
-    with VGG16 network-bac
-    """
-    def __init__(self, params:RNParams):
-        super(ResNetSegmentation, self).__init__()
+        pred = F.sigmoid(pred)
+        BCE_loss = F.binary_cross_entropy(pred, target, reduction='none')
+        BCE_loss = BCE_loss.mean()
 
-        backbone = models.resnet50(weights=ResNet50_Weights.DEFAULT)
-        modules = list(backbone.children())[:-1]
-        self.encoder = nn.Sequential(*modules) 
-
-        self.head = DeepLabHead(2048, num_classes=512)
-        self.sigmoid = nn.Sigmoid()
-
-        self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(
-                2048, 256, kernel_size=3, stride=2, padding=1, output_padding=1
-            ),  # Output: [batch_size, 256, H/16, W/16]
-            nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(
-                256, 128, kernel_size=3, stride=2, padding=1, output_padding=1
-            ),  # Output: [batch_size, 128, H/8, W/8]
-            nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(
-                128, 64, kernel_size=3, stride=2, padding=1, output_padding=1
-            ),  # Output: [batch_size, 64, H/4, W/4]
-            nn.ReLU(inplace=True),
-            nn.Conv2d(
-                64, params.num_classes, kernel_size=1
-            ),  # Final layer for segmentation map, reduces channels to num_classes
-        )
-
-    @override
-    def forward(self, x):
-        out = self.encoder(x)
+        mask_ones = torch.sum(b_mask == 1)
+        b = (BCE_loss*b_mask).sum()
+        boundary_aware = (self.lambda_w/mask_ones)*b
         
-        #print(out.shape)
-        #out = self.head(out)
-        #print(out.shape)
-        out = self.sigmoid(out)
-        out = self.decoder(out)
+        return BCE_loss + boundary_aware
 
-        #print(segmentation_map.shape)
 
-        segmentation_map = nn.functional.interpolate(
-            out, size=(96, 256), mode="bilinear", align_corners=False
-        )
-
-        #print(segmentation_map.shape)
-
-        segmentation_map = self.sigmoid(segmentation_map)
-        
-        return {"out": segmentation_map}

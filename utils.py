@@ -6,6 +6,7 @@ import os
 from collections import OrderedDict
 from pathlib import Path
 from random import randint
+import shutil
 from typing import Any, override, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
@@ -19,7 +20,17 @@ from torch import nn
 from torch.nn import functional as F
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Subset
 from torchmetrics.segmentation import DiceScore, MeanIoU
+
+# AUROC Metrics
+from torchmetrics.classification import MultilabelAUROC
+from torchmetrics.functional.classification import auroc
+
+#AP
+from torchmetrics.classification import MultilabelAveragePrecision
+
+
 from tqdm.auto import tqdm
 
 class ToMask(nn.Module):
@@ -91,8 +102,10 @@ class TrainNetwork:
         self._model: nn.Module = model
         self._loss: nn.Module = hp["loss"]
         self._optimizer: Optimizer = hp["optimizer"]
-        self.dice = DiceScore(num_classes=dice_num_classes, average='micro', input_format=encode)
+        self.dice = DiceScore(num_classes=dice_num_classes, average='macro', input_format=encode)
         self.iou = MeanIoU(num_classes=dice_num_classes, input_format=encode)
+        self.AP = MultilabelAveragePrecision(num_labels=dice_num_classes, average=None)
+        self.auroc = MultilabelAUROC(num_labels=dice_num_classes)
         self._lr_scheduler = lr_scheduler
         self.encode = encode
 
@@ -111,22 +124,28 @@ class TrainNetwork:
             desc="training", total=train_size  # type: ignore
         )  # uses len(dataset) instead of dataset.size
 
-        bar.set_postfix({"batch": 0, "loss": 0, "diceScore": 0.0,"IoU": 0.0, 'lr': self._optimizer.param_groups[0]['lr']})
+        bar.set_postfix({"batch": 0, "loss": 0, "diceScore": 0.0,"IoU": 0.0, "AVG_P": 0.0, "AUROC": 0.0, 'lr': self._optimizer.param_groups[0]['lr']})
+
         self.dice = self.dice.to(device)
         self.iou  = self.iou.to(device)
+        self.AP = self.AP.to(device)
+        self.auroc = self.auroc.to(device)
+
         self.dice.reset()
         self.iou.reset()
-        dice_value = 0
-        iou_value  = 0
+        self.AP.reset()
+        self.auroc.reset()
+
+        
+        AP_value = 0
+        AUROC_value = 0
+
         for x, y, m in dataloader_train:
             bar.set_description(f"training epoch: {epoch}", refresh=True)
 
-
-            
             x = x.to(device)
             y = y.squeeze(1).to(device)
             m = m.to(device)
-
 
             batch += 1
             batch_len = len(y)
@@ -138,15 +157,21 @@ class TrainNetwork:
             
             if isinstance(y_pred, OrderedDict):
                 y_pred = y_pred["out"] 
-                
             
-            
-            y_classes = (torch.argmax(y_pred, dim=1) if self.encode == "index" else F.one_hot(torch.argmax(y_pred, dim=1), num_classes=y_pred.shape[1]).permute(0, 3, 1, 2))
-            #print(f"x shape: {x.shape}")
-            #print(f"y shape: {y.shape}")
-            #print(f"y_pred shape: {y_pred.shape}")
-            dice_value += self.dice(y_classes, y.long())
-            iou_value += self.iou(y_classes, y.long())
+            with torch.no_grad():
+                y_classes = (torch.argmax(y_pred, dim=1) if self.encode == "index" else F.one_hot(torch.argmax(y_pred, dim=1), num_classes=y_pred.shape[1]).permute(0, 3, 1, 2))
+                #print(f"x shape: {x.shape}")
+                #print(f"y shape: {y.shape}")
+                #print(f"y_pred shape: {y_pred.shape}")
+
+                self.dice.update(y_classes, y.long())
+                self.iou.update(y_classes, y.long())
+
+                self.AP.reset()
+                AP_value += self.AP(y_pred, y.long()).numpy(force=True).mean()
+
+                self.auroc.reset()
+                AUROC_value += self.auroc(y_pred, y.long()).numpy(force=True)
             
             loss = loss_fn(y_pred, y, m)
             loss_v = loss.item()
@@ -159,8 +184,10 @@ class TrainNetwork:
                 {
                     "batch": batch,
                     "loss": epoch_loss / batch,
-                    "diceScore": dice_value.numpy(force=True) / batch,
-                    "IoU": iou_value.numpy(force=True) / batch,
+                    "diceScore": self.dice.compute().numpy(force=True),
+                    "IoU": self.iou.compute().numpy(force=True),
+                    "AVG_P": AP_value / batch,
+                    "AUROC": AUROC_value / batch, 
                     'lr': self._optimizer.param_groups[0]['lr']
                 }
             )
@@ -171,6 +198,8 @@ class TrainNetwork:
         log_train["loss"].append(epoch_loss / batch)
         log_train["diceScore"].append(self.dice.compute().numpy(force=True))
         log_train["IoU"].append(self.iou.compute().numpy(force=True))
+        log_train["AVG_P"].append(AP_value / batch)
+        log_train["AUROC"].append(AUROC_value / batch)
         log_train["lr"].append(self._optimizer.param_groups[0]['lr'])
         return log_train
 
@@ -194,17 +223,24 @@ class TrainNetwork:
                 "batch": 0,
                 "loss": 0,
                 "diceScore": 0.0,
-                "IoU": 0.0
+                "IoU": 0.0,
+                "AVG_P": 0.0,
+                "AUROC": 0.0
             }
         )
+
         self.dice = self.dice.to(device)
         self.iou  = self.iou.to(device)
+        self.AP = self.AP.to(device)
+        self.auroc = self.auroc.to(device)
+
         self.dice.reset()
         self.iou.reset()
+        self.AP.reset()
+        self.auroc.reset()
 
-        
-        dice_value = 0
-        iou_value  = 0
+        AP_value = 0
+        AUROC_value = 0
         for x, y, m in dataloader_val:
 
             with torch.no_grad():
@@ -215,14 +251,21 @@ class TrainNetwork:
 
                 batch += 1
                 batch_len = len(y)
-
+                
                 # print(f"label shape {y.shape}")
                 y_pred = model(x)
                 if isinstance(y_pred, OrderedDict):
                     y_pred = y_pred["out"] 
                 y_classes = (torch.argmax(y_pred, dim=1) if self.encode == "index" else F.one_hot(torch.argmax(y_pred, dim=1), num_classes=y_pred.shape[1]).permute(0, 3, 1, 2))
-                dice_value += self.dice(y_classes, y.long())
-                iou_value  += self.iou(y_classes, y.long())
+                self.dice.update(y_classes, y.long())
+                self.iou.update(y_classes, y.long())
+
+                self.AP.reset()
+                AP_value += self.AP(y_pred, y.long()).numpy(force=True).mean()
+
+                self.auroc.reset()
+                AUROC_value += self.auroc(y_pred, y.long()).numpy(force=True)
+
                 loss = loss_fn(y_pred, y, m)
 
                 loss_v = loss.item()
@@ -232,8 +275,11 @@ class TrainNetwork:
                     {
                         "batch": batch,
                         "loss": epoch_loss / batch,
-                        "diceScore": dice_value.numpy(force=True) / batch,
-                        "IoU" : iou_value.numpy(force=True) / batch 
+                        "diceScore": self.dice.compute().numpy(force=True),
+                        "IoU" : self.dice.compute().numpy(force=True),
+                        "AVG_P": AP_value / batch,
+                        "AUROC": AUROC_value / batch, 
+                        
                     }
                 )
                 bar.update(batch_len)
@@ -243,6 +289,8 @@ class TrainNetwork:
         log_eval["loss"].append(epoch_loss / batch)
         log_eval["diceScore"].append(self.dice.compute().numpy(force=True))
         log_eval["IoU"].append(self.iou.compute().numpy(force=True))
+        log_eval["AVG_P"].append(AP_value / batch)
+        log_eval["AUROC"].append(AUROC_value / batch)
         log_eval["lr"].append(0)
 
         return log_eval
@@ -275,7 +323,10 @@ class TrainNetwork:
             os.mkdir(log_dir)
         else:
             for f in log_dir.glob("*"):
-                os.remove(f)
+                if f.is_dir():
+                    shutil.rmtree(f)
+                else:
+                    os.remove(f)
 
         dataloader_train = DataLoader(
             train_set,
@@ -299,6 +350,8 @@ class TrainNetwork:
             "loss"     : [],
             "diceScore": [],
             "lr"       : [],
+            "AVG_P"    : [],
+            "AUROC"    : [],
             "IoU"      : []
         }
 
@@ -306,7 +359,9 @@ class TrainNetwork:
             "epoch"     : [],
             "loss"      : [],
             "diceScore" : [],
-            "lr"        : []  ,
+            "lr"        : [],
+            "AVG_P"    : [],
+            "AUROC"    : [],
             "IoU"       : [] 
         }
 
@@ -345,55 +400,61 @@ class TrainNetwork:
                 model.eval()
                 with torch.no_grad():
 
-                    img, y, _ = validation_set[randint(0, len(validation_set))]
-                    x = img.clone()
-                    x = x.unsqueeze(0).to(device)
-                    img = img.numpy(force=True)
+                    x, y, _ = validation_set[randint(0, len(validation_set))]
                     
+                    # Add batch for computing
+                    x = x.unsqueeze(0).to(device)
+                    y = y.unsqueeze(0)
+        
                     y_pred = model(x)
-                    y_pred_logits = unknownObjectnessScore(y_pred.squeeze(0)).unsqueeze(0)
-                    if y.shape[-1] > len(map_cls_to_color):
-                        #print(y_pred.shape)
-                        y_pred = y_pred[:, :len(map_cls_to_color), :, :]
-                        #print(y_pred.shape)
-                        y_pred = y_pred.argmax(dim=1).cpu().numpy().squeeze(0)
-                        y = y.cpu().squeeze(0).numpy()
-                        y = y[:len(map_cls_to_color), :, :]
+                    uos = unknownObjectnessScore(y_pred)
+                    
+                    # Remove Object map if present
+                    
+                        #print(y.shape)
+                    y_pred = y_pred[:, :len(map_cls_to_color), :, :]    
+                    y = y[:, :len(map_cls_to_color), :, :]
                     
                     #print(y.shape)
-                    
-                      
+
+                    # remove batchs
+                    y = y.cpu().squeeze(0)
+                    y_pred = y_pred.cpu().squeeze(0)
+                    x = x.cpu().squeeze(0)
+
+                    # Convert in numpy objects
+                    y = y.numpy()
+                    y_pred = y_pred.numpy()
+                    img = x.numpy()
 
                     if self.encode == "index":
-                        y_pred = map2Image(map_cls_to_color, y_pred)
-                        y = map2Image(map_cls_to_color, y)
+                        pred_img = map2Image(map_cls_to_color, y_pred)
+                        y_img = map2Image(map_cls_to_color, y)
                     else:
-                         
-                        y = np.argmax(y, axis=0)
-                        y_pred = bmap2Image(map_cls_to_color, y_pred)
-                        y = bmap2Image(map_cls_to_color, y)
+                        # convert logits in classes
+                        y_pred_prb = np.argmax(y_pred, axis=0)
+                        y_prb= np.argmax(y, axis=0)
+
+                        pred_img = bmap2Image(map_cls_to_color, y_pred_prb)
+                        y_img = bmap2Image(map_cls_to_color, y_prb)
 
 
-                    
-                    result = np.hstack((np.permute_dims(img*255, (1,2,0)), y, y_pred)).astype(np.uint8)
+                    result = np.hstack((np.permute_dims(img*255, (1,2,0)), y_img, pred_img)).astype(np.uint8)
                    
                     plt.imsave(f"{log_dir}/result_epoch_{epoch}.png", result)
 
-                    varisco_heatmap = compute_varisco_heatmap_rgb(y_pred_logits.squeeze(0))
+                    varisco_heatmap = compute_varisco_heatmap_rgb(uos)
                     overlay = overlay_heatmap(np.transpose(img * 255, (1, 2, 0)), varisco_heatmap, alpha=0.5)
 
                     plt.imsave(f"{log_dir}/heatmap_epoch_{epoch}.png", varisco_heatmap)
                     plt.imsave(f"{log_dir}/heatmap_overlay_epoch_{epoch}.png", overlay)
-        
-        
-        
+           
         ############################################################################################
         # Conformal Semantic Image Segmentation: Post-hoc Quantification of Predictive Uncertainty #
         ############################################################################################
+        #calibration_set = DataLoader(Subset(validation_set, np.random.randint(0, len(validation_set), size=int(len(validation_set)//0.05) )))
 
-        
-
-        
+        #print(calibration_set)
         ###########
         # Logging #
         ###########
@@ -542,7 +603,7 @@ def unknownObjectnessScore(pred: torch.Tensor) -> torch.Tensor:
 
 
 def ObjectnessScore(pred: torch.Tensor) -> torch.Tensor:
-    """Map [1, H, W] with Uknown Objectness Score."""
+    """Map [1, H, W] with Objectness Score."""
     if pred.dim() == 4:
         pred = pred.squeeze(0) 
 
@@ -603,28 +664,62 @@ def resize(src_dir: Path | str, out_dir: Path | str, split: Path | str, size:tup
             image = cv.resize(image, size, interpolation=4)
             cv.imwrite(out_label_path.joinpath(file_.name), image)
 
-def plot_report(log_file_train:Path|str, log_file_valid:Path|str, out_dir:Path|str = "."):
+def plot_report(log_file_train:Path|str|pd.DataFrame, log_file_valid:Path|str|pd.DataFrame|None = None, out_dir:Path|str = "."):
     matplotlib.use("PDF")
-    log_file_train = Path(log_file_train)
-    log_file_valid = Path(log_file_valid)
     out_dir = Path(out_dir)
     os.makedirs(out_dir, exist_ok=True)
-    log_train = pd.read_csv(log_file_train, sep=",").to_dict('list')
-    log_valid = pd.read_csv(log_file_valid, sep=",").to_dict('list')
 
-    x = log_train.pop("epoch")
-    log_valid.pop("epoch")
+    def _comparative_report(log_train, log_valid, out_dir):
+        x = log_train.pop("epoch")
+        log_valid.pop("epoch")
+        
+
+        for (kt, vt), (_, vv) in zip(log_train.items(), log_valid.items()):
+            plt.figure()
+            plt.plot(x, vt, marker='o', label="Train")
+            plt.plot(x, vv, marker='x', label="Validation")
+            plt.xlabel("Epochs")
+            plt.ylabel(f"{kt}")
+            plt.title(out_dir.joinpath(f"Graphics of {kt}"))
+            plt.legend()
+            plt.savefig(out_dir.joinpath(f"graphic_{kt}"))
+
+    def _plot_graphics(log_train, out_dir):
+        x = log_train.pop("epoch")
+        for (kt, vt) in log_train.items():
+            plt.figure()
+            plt.plot(x, vt, marker='o', label="Test")
+            
+            plt.xlabel("Epochs")
+            plt.ylabel(f"{kt}")
+            plt.title(out_dir.joinpath(f"Graphics of {kt}"))
+            plt.legend()
+            plt.savefig(out_dir.joinpath(f"graphic_{kt}"))
+
+    if isinstance(log_file_train, pd.DataFrame):
+        log_train = log_file_train
+    else:
+        log_file_train = Path(log_file_train)
+        log_train = pd.read_csv(log_file_train, sep=",").to_dict('list')
+
+    
+    
+    if log_file_valid:
+        if isinstance(log_file_valid, pd.DataFrame):
+            log_valid = log_file_valid
+        else:
+            log_file_valid = Path(log_file_valid)        
+            log_valid = pd.read_csv(log_file_valid, sep=",").to_dict('list')
+        _comparative_report(log_train, log_valid, out_dir)
+    else:
+        _plot_graphics(log_train, out_dir)
+
+
+    
+    
     
 
-    for (kt, vt), (_, vv) in zip(log_train.items(), log_valid.items()):
-        plt.figure()
-        plt.plot(x, vt, marker='o', label="Train")
-        plt.plot(x, vv, marker='x', label="Validation")
-        plt.xlabel("Epochs")
-        plt.ylabel(f"{kt}")
-        plt.title(out_dir.joinpath(f"Graphics of {kt}"))
-        plt.legend()
-        plt.savefig(out_dir.joinpath(f"graphic_{kt}"))
+    
 
 def getBCEmask(shape: Tuple[int, int, int, int], dim):
     B, C, H, W = shape
@@ -639,22 +734,39 @@ def getBCEmask(shape: Tuple[int, int, int, int], dim):
 
     return mask
 
-class BoundaryAwareBCE(nn.Module):
-    def __init__(self, lambda_w=3.0):
-        super(BoundaryAwareBCE, self).__init__()
-        self.lambda_w = lambda_w
-    
-    def forward(self, pred, target, b_mask):
 
-        pred = F.sigmoid(pred)
-        BCE_loss = F.binary_cross_entropy(pred, target, reduction='none')
-        BCE_loss = BCE_loss.mean()
+class AUROC_metric():
+    def __init__(self, num_classes):
+        self.__num_classes = num_classes
 
-        mask_ones = torch.sum(b_mask == 1)
-        b = (BCE_loss*b_mask).sum()
-        boundary_aware = (self.lambda_w/mask_ones)*b
+        self.auroc_value = 0.0
+        self.num_updates = 0
+
         
-        return BCE_loss + boundary_aware
+    def update(self, preds, target):
+        B, C, H, W = preds.shape
+
+        if preds.shape != target.shape:
+            raise ValueError("preds and target must have the same shape")
+
+        preds_flat = preds.permute(0, 2, 3, 1).reshape(-1, C)
+        target_flat = target.permute(0, 2, 3, 1).reshape(-1, C)
+
+        auroc_scores = auroc(preds_flat, target_flat.int(), task="multiclass", num_classes=C, average=None)
+
+        auroc_score = auroc_scores.cpu().mean().item()
+
+        self.auroc_value += auroc_score
+        self.num_updates +=1
+
+        return auroc_score
+    
+    def compute(self):
+        return self.auroc_value/self.num_updates
+
+    
+
+    
 
 # Conformal Semantic Image Segmentation: Post-hoc Quantification of Predictive Uncertainty
 def lasc(X, lamb): # or Least Ambiguous Set-Valued Classifiers (LAC)
@@ -680,12 +792,12 @@ def lasc(X, lamb): # or Least Ambiguous Set-Valued Classifiers (LAC)
     # Create a tensor for the top-1 classes, initialized to zeros
     # This will be used to ensure at least one class is active for each pixel
     # Use torch.zeros_like for shape matching
-    top1_mask_fill = torch.zeros_like(X).long()
+    #top1_mask_fill = torch.zeros_like(X).long()
 
     # Fill the top-1_mask_fill at the top-1 indices with 1s
     # Unsqueeze top1_indices to match dimensions for scatter_
     # top1_indices needs to be (B, H, W, 1) for scatter_
-    top1_mask_fill.scatter_(dim=-1, index=top1_indices.unsqueeze(-1), value=1)
+    #top1_mask_fill.scatter_(dim=-1, index=top1_indices.unsqueeze(-1), value=1)
     
     # Combine the thresholded mask with the top-1 fallback
     # For each pixel, if the thresholded mask is all zeros (empty),
@@ -694,8 +806,8 @@ def lasc(X, lamb): # or Least Ambiguous Set-Valued Classifiers (LAC)
     # If mask[b, h, w, k] is 1 OR top1_mask_fill[b, h, w, k] is 1, then the final mask element is 1.
     mask = (X >= 1 - lamb).long()
 
-    final_mask = torch.max(mask, top1_mask_fill)
-    final_mask = torch.permute(final_mask, (0,3,1,2))
+    #final_mask = torch.max(mask, top1_mask_fill)
+    final_mask = torch.permute(mask, (0,3,1,2))
 
     return final_mask
 
@@ -777,8 +889,6 @@ def uncertainty_heatmap(img, Y_pred, Y):
     
     hm = overlay_heatmap(np.transpose(img * 255, (1, 2, 0)), vh, 0.5)
 
-
-
     plt.figure(figsize=(8, 4))
     img = plt.imshow(hm)
 
@@ -790,6 +900,28 @@ def uncertainty_heatmap(img, Y_pred, Y):
 
 
 if __name__ == "__main__":
+    
+
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(device)
+
+    preds = torch.rand(8, 9, 10, 10).to(device)
+    targets = torch.randint(0, 2, (8, 9, 10, 10)).to(device)
+
+    auroc = MultilabelAUROC(9)
+
+    auroc.update(preds, targets)
+    #res = compute_AUROC(preds, targets)
+
+    res = auroc.compute()
+
+
+    print(res.cpu().numpy())
+
+
+
+
     #resize("./Dataset", "./Dataset256x96", "val", (256,96))
     #plot_report("./Sigmoid/train.csv", "./Sigmoid/eval.csv")
 
@@ -808,59 +940,60 @@ if __name__ == "__main__":
     #print(t)
 
     # Ricrea il modello con la stessa architettura
-    import segmentation_models_pytorch as smp
-    from data import CSDataset
-    from torchvision.transforms import v2
+    # import segmentation_models_pytorch as smp
+    # from data import CSDataset
+    # from torchvision.transforms import v2
 
-    from globals import *
-
-
-    ENCODE = "one-hot"
-    DATASET_NAME = "CSF192x512"
-    MAP_COLOR2LABEL = CS_COLOR2LABEL
-    MAP_LABEL2COLOR = CS_LABEL2COLOR
-    FILL = 0
-    batch_size = 32
+    # from globals import *
 
 
-    MASK_FN = ToBMask(MAP_COLOR2LABEL, fill=FILL, add_map=CS_PLUS)
-    NUM_CLS = len(MAP_LABEL2COLOR) + 1
-
-    DEVICE = ('cuda' if torch.cuda.is_available() else 'cpu')
-
-    model = smp.DeepLabV3Plus(
-        encoder_name="se_resnet50",
-        encoder_weights="imagenet",  # o None, se i pesi personalizzati includono anche l'encoder
-        classes=NUM_CLS,
-        activation=None,
-
-    )
-
-    # Carica i pesi
-    state_dict = torch.load("./MyNet/best_weights_epoch_4.pth", map_location="cpu")
-    model.load_state_dict(state_dict)
-
-    data_test = CSDataset(
-        f"{DATASET_NAME}/val",
-        transform_x=v2.Compose([v2.ToImage(), v2.ToDtype(dtype=torch.float32, scale=True)]),
-        transform_y=v2.Compose([MASK_FN]),
-    )
+    # ENCODE = "one-hot"
+    # DATASET_NAME = "CSF192x512"
+    # MAP_COLOR2LABEL = CS_COLOR2LABEL
+    # MAP_LABEL2COLOR = CS_LABEL2COLOR
+    # FILL = 0
+    # batch_size = 32
 
 
-    dataloader_val = DataLoader(data_test, batch_size=batch_size, shuffle=True)
+    # MASK_FN = ToBMask(MAP_COLOR2LABEL, fill=FILL, add_map=CS_PLUS)
+    # NUM_CLS = len(MAP_LABEL2COLOR) + 1
 
-    img, y, _ = next(iter(dataloader_val))
+    # DEVICE = ('cuda' if torch.cuda.is_available() else 'cpu')
 
-    img = img.to(DEVICE)
-    model = model.to(DEVICE)
+    # model = smp.DeepLabV3Plus(
+    #     encoder_name="se_resnet50",
+    #     encoder_weights="imagenet",  # o None, se i pesi personalizzati includono anche l'encoder
+    #     classes=NUM_CLS,
+    #     activation=None,
+
+    # )
+
+    # # Carica i pesi
+    # state_dict = torch.load("./MyNet/best_weights_epoch_4.pth", map_location="cpu")
+    # model.load_state_dict(state_dict)
+
+    # data_test = CSDataset(
+    #     f"{DATASET_NAME}/val",
+    #     transform_x=v2.Compose([v2.ToImage(), v2.ToDtype(dtype=torch.float32, scale=True)]),
+    #     transform_y=v2.Compose([MASK_FN]),
+    # )
 
 
-    with torch.no_grad():
-        y_pred = model(img)
+    # dataloader_val = DataLoader(data_test, batch_size=batch_size, shuffle=True)
 
-    y_pred = y_pred.cpu()
+    # img, y, _ = next(iter(dataloader_val))
 
-    uncertainty_heatmap(img, y_pred[:, :-1, :,:], y[:, :-1, :,:])
+    # img = img.to(DEVICE)
+    # model = model.to(DEVICE)
+
+
+    # with torch.no_grad():
+    #     y_pred = model(img)
+
+    # y_pred = y_pred.cpu()
+
+    # uncertainty_heatmap(img, y_pred[:, :-1, :,:], y[:, :-1, :,:])
+    
 
 
 

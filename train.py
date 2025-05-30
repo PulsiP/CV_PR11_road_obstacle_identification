@@ -7,15 +7,16 @@ from torch.optim.lr_scheduler import StepLR
 from torchvision.transforms import v2
 from data import CSDataset
 from globals import *
-from network import *
-from utils import ToBMask, ToMask, TrainNetwork,miscoverage_loss, plot_report, BoundaryAwareBCE
-
-import torch.nn.functional as F
+from network import BoundaryAwareBCE, FCN, FCNParams
+from utils import ToBMask, ToMask, TrainNetwork, miscoverage_loss, plot_report
+from evaluation import ObstacleBenchmark
 
 parser = argparse.ArgumentParser(description="CLI")
 
 # 2. Aggiungi i parametri
-parser.add_argument("--epochs", type=int, default=10, help="Numero di epoche")
+parser.add_argument(
+    "--epochs", type=int, default=10, help="Numero di epoche"
+)
 parser.add_argument(
     "--model", type=str, required=True, help="Nome del modello da usare"
 )
@@ -24,9 +25,13 @@ parser.add_argument(
 )
 parser.add_argument("--dataset", type=str, required=True, help="Dataset")
 # 3. Leggi i parametri dalla linea di comando
-args = parser.parse_args()
 
+
+parser.add_argument(
+    "--benchmark", type=str, required=False, help="Test the model on a real scenario", default=""
+)
 # 4. Usa i parametri
+args = parser.parse_args()
 DEVICE = ('cuda' if torch.cuda.is_available() else 'cpu')
 match args.dataset:
 
@@ -164,8 +169,35 @@ m, _, _ = trainer.train(
     batch_size=16,
     map_cls_to_color=MAP_LABEL2COLOR,
 )
+
 plot_report(
     log_file_train=args.log_dir + "/train.csv",
     log_file_valid=args.log_dir + "/eval.csv",
     out_dir=args.log_dir,
 )
+
+
+match args.benchmark:
+    case "Obstacles":
+        benchmark = ObstacleBenchmark(network=m, log_dir=args.log_dir)
+        ENCODE = "one-hot"
+        DATASET_NAME = "LAF192x512"
+        MAP_COLOR2LABEL = LAF_COLOR2LABEL
+        MAP_LABEL2COLOR = LAF_LABEL2COLOR
+        FILL = 0
+        MASK_FN = ToBMask(MAP_COLOR2LABEL, fill=FILL, add_map=LAF_PLUS)
+        NUM_CLS = len(MAP_LABEL2COLOR) + 1
+
+        data_test = CSDataset(
+            f"{DATASET_NAME}/val",
+            transform_x=v2.Compose([v2.ToImage(), v2.ToDtype(dtype=torch.float32, scale=True)]),
+            transform_y=v2.Compose([MASK_FN]),
+
+        )
+        
+        benchmark.run_benchmark(data_test, hyper_parameters["loss"], keep_index=list(LAF_LABEL2COLOR.keys()), format="one-hot", map_cls_to_color=MAP_LABEL2COLOR, device=DEVICE, repeat_for=3)
+    case _:
+        print("--benchmark not found--")
+
+print("--End Script--")
+

@@ -126,9 +126,6 @@ class DatasetFactory:
 
         return None
 
-
-    
-
 class CSDataset(Dataset):
     """
     Classe per il caricamento del dataset **Cityscapes_kaggle** `valido`. Un dataset
