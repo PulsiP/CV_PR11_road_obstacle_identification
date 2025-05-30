@@ -11,6 +11,10 @@ Reliable road obstacle identification is a critical requirement for the safe ope
 The aim of this project is to develop a general, model-agnostic framework for road obstacle identification, starting from the outputs of any semantic segmentation network. The system will focus on anomaly-aware semantic segmentation to detect obstacles outside the predefined classes. This will allow for the identification of unknown obstacles as part of the segmentation output. To ensure that each identification is accompanied by a reliable measure of confidence, the framework will integrate uncertainty quantification through Conformal Prediction methods. By combining these components, the system will not only recognize potential obstacles but also provide formal statistical guarantees regarding the reliability of its predictions.
 
 
+## Run Experiments
+
+*   ```sh python train.py --model MyNetwork --dataset CSF512x192_OH --log_dir MyNet --epochs 3 --benchmark Obstacles```
+
 ## Project Links
 
 * [Google Drive](https://drive.google.com/drive/folders/1v5ReEkvZz2Ztikob-fOPOXxqr4hAw8c5?usp=sharing)
