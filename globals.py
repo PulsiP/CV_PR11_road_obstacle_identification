@@ -158,49 +158,49 @@ LAF_LABEL = [
     Label(  'rectification border' ,  0 ,       0       , False        , True         , (  0,  0,  0) ),
     Label(  'out of roi'           ,  0 ,       0       , False        , True         , (  0,  0,  0) ),
     Label(  'background'           ,  0 ,       0       , False        , False        , (  0,  0,  0) ),
-    Label(  'free'                 ,  1 ,       1       , False        , False        , (128, 64,128) ),
-    Label(  '01'                   ,  2 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '02'                   ,  3 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '03'                   ,  4 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '04'                   ,  5 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '05'                   ,  6 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '06'                   ,  7 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '07'                   ,  8 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '08'                   ,  9 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '09'                   , 10 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '10'                   , 11 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '11'                   , 12 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '12'                   , 13 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '13'                   , 14 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '14'                   , 15 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '15'                   , 16 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '16'                   , 17 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '17'                   , 18 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '18'                   , 19 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '19'                   , 20 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '20'                   , 21 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '21'                   , 22 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '22'                   , 23 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '23'                   , 24 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '24'                   , 25 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '25'                   , 26 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '26'                   , 27 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '27'                   , 28 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '28'                   , 29 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '29'                   , 30 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  'road'                 ,  1 ,       1       , False        , False        , (128, 64,128) ),
+    Label(  '01'                   ,  2 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '02'                   ,  3 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '03'                   ,  4 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '04'                   ,  5 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '05'                   ,  6 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '06'                   ,  7 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '07'                   ,  8 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '08'                   ,  9 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '09'                   , 10 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '10'                   , 11 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '11'                   , 12 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '12'                   , 13 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '13'                   , 14 ,       8      , True         , False        , (  0,  0,142) ),
+    Label(  '14'                   , 15 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '15'                   , 16 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '16'                   , 17 ,       8      , True         , False        , (  0,  0,142) ),
+    Label(  '17'                   , 18 ,       8      , True         , False        , (  0,  0,142) ),
+    Label(  '18'                   , 19 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '19'                   , 20 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '20'                   , 21 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '21'                   , 22 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '22'                   , 23 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '23'                   , 24 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '24'                   , 25 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '25'                   , 26 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '26'                   , 27 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '27'                   , 28 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '28'                   , 29 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '29'                   , 30 ,       8       , True         , False        , (  0,  0,142) ),
     Label(  '30'                   , 31 ,       0       , True         , False        , (  0,  0,  0) ),
-    Label(  '31'                   , 32 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '31'                   , 32 ,       8       , True         , False        , (  0,  0,142) ),
     Label(  '32'                   , 33 ,       0       , True         , False        , (  0,  0,  0) ),
     Label(  '33'                   , 34 ,       0       , True         , False        , (  0,  0,  0) ),
-    Label(  '34'                   , 35 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '34'                   , 35 ,       8       , True         , False        , (  0,  0,142) ),
     Label(  '35'                   , 36 ,       0       , True         , False        , (  0,  0,  0) ),
     Label(  '36'                   , 37 ,       0       , True         , False        , (  0,  0,  0) ),
     Label(  '37'                   , 38 ,       0       , True         , False        , (  0,  0,  0) ),
     Label(  '38'                   , 39 ,       0       , True         , False        , (  0,  0,  0) ),
-    Label(  '39'                   , 40 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '40'                   , 41 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '41'                   , 42 ,       2       , True         , False        , (  0,  0,142) ),
-    Label(  '42'                   , 43 ,       2       , True         , False        , (  0,  0,142) ),
+    Label(  '39'                   , 40 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '40'                   , 41 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '41'                   , 42 ,       8       , True         , False        , (  0,  0,142) ),
+    Label(  '42'                   , 43 ,       8       , True         , False        , (  0,  0,142) ),
 
 ]
 
@@ -267,14 +267,19 @@ CS_LABEL2COLOR = {label.trainId: label.color for label in CS_LABEL if label.trai
 LAF_LABEL2COLOR = {label.trainId: label.color for label in LAF_LABEL if label.trainId != 255}
 
 
-
-CSB_LABEL2COLOR = {
-    1 : (255,255,255) ,
-    0 : (0,0,0)
-}
-
 # color → trainId
 CS_COLOR2LABEL = {label.color: label.trainId for label in CS_LABEL if label.trainId != 255}
+
+
+CS_COLOR2LABEL_p = {}
+
+for k,v in CS_COLOR2LABEL.items():
+    if v == 1:
+        CS_COLOR2LABEL_p[(128, 64,128)] = 1
+    else:
+        CS_COLOR2LABEL_p[k] = 0
+
+CS_COLOR2LABEL_p[(  0,  0,142)] = 8
 LAF_COLOR2LABEL = {label.color: label.trainId for label in LAF_LABEL if label.trainId != 255}
 
 # Plus mapping
@@ -283,4 +288,5 @@ CS_PLUS = {label.color : label.trainId for label in CS_OBJECTS if label.trainId 
 LAF_PLUS = {label.color : label.trainId for label in LAF_OBJECT if label.trainId != 255}
 if __name__ == "__main__":
     #print(CS_LABEL2COLOR)
-    print(CS_COLOR2LABEL)
+    #print(CS_COLOR2LABEL)
+    print(LAF_LABEL2COLOR)

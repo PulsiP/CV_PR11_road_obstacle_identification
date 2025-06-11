@@ -7,7 +7,7 @@ from collections import OrderedDict
 from pathlib import Path
 from random import randint
 import shutil
-from typing import Any, override, Tuple
+from typing import Any, List, override, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import cv2 as cv
@@ -22,7 +22,7 @@ from torch.optim import Optimizer
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data import Subset
 from torchmetrics.segmentation import DiceScore, MeanIoU
-
+from random import shuffle
 # AUROC Metrics
 from torchmetrics.classification import MultilabelAUROC
 from torchmetrics.functional.classification import auroc
@@ -95,17 +95,23 @@ class TrainNetwork:
     configurati
     """
 
-    def __init__(self, hp: dict[str, Any], model: nn.Module, dice_num_classes:int=21, lr_scheduler = None, encode = "index") -> None:
+    def __init__(self, hp: dict[str, Any], model: nn.Module, dice_num_classes:int=21, keep_index:List[int] = [], lr_scheduler = None, encode = "index") -> None:
         """
         Inizializza il trainer
         """
         self._model: nn.Module = model
+        if keep_index:
+            self._index = keep_index 
+        else:
+            self._index = list(range(dice_num_classes))
+
+        
         self._loss: nn.Module = hp["loss"]
         self._optimizer: Optimizer = hp["optimizer"]
-        self.dice = DiceScore(num_classes=dice_num_classes, average='macro', input_format=encode)
-        self.iou = MeanIoU(num_classes=dice_num_classes, input_format=encode)
-        self.AP = MultilabelAveragePrecision(num_labels=dice_num_classes, average=None)
-        self.auroc = MultilabelAUROC(num_labels=dice_num_classes)
+        self.dice = DiceScore(num_classes=len(self._index), average='macro', input_format=encode)
+        self.iou = MeanIoU(num_classes=len(self._index), input_format=encode)
+        #self.AP = MultilabelAveragePrecision(num_labels=len(self._index), average=None)
+        #self.auroc = MultilabelAUROC(num_labels=len(self._index))
         self._lr_scheduler = lr_scheduler
         self.encode = encode
 
@@ -128,13 +134,13 @@ class TrainNetwork:
 
         self.dice = self.dice.to(device)
         self.iou  = self.iou.to(device)
-        self.AP = self.AP.to(device)
-        self.auroc = self.auroc.to(device)
+        #self.AP = self.AP.to(device)
+        #self.auroc = self.auroc.to(device)
 
         self.dice.reset()
         self.iou.reset()
-        self.AP.reset()
-        self.auroc.reset()
+        #self.AP.reset()
+        #self.auroc.reset()
 
         
         AP_value = 0
@@ -158,6 +164,13 @@ class TrainNetwork:
             if isinstance(y_pred, OrderedDict):
                 y_pred = y_pred["out"] 
             
+            y_pred = y_pred[:, self._index, :, :]
+            y = y[:, self._index, :, :]
+
+            #
+            #print(f"x shape: {x.shape}")
+            #print(f"y shape: {y.shape}")
+            #print(f"y_pred shape: {y_pred.shape}")
             with torch.no_grad():
                 y_classes = (torch.argmax(y_pred, dim=1) if self.encode == "index" else F.one_hot(torch.argmax(y_pred, dim=1), num_classes=y_pred.shape[1]).permute(0, 3, 1, 2))
                 #print(f"x shape: {x.shape}")
@@ -167,11 +180,11 @@ class TrainNetwork:
                 self.dice.update(y_classes, y.long())
                 self.iou.update(y_classes, y.long())
 
-                self.AP.reset()
-                AP_value += self.AP(y_pred, y.long()).numpy(force=True).mean()
+                #self.AP.reset()
+                #AP_value += self.AP(y_pred, y.long()).numpy(force=True).mean()
 
-                self.auroc.reset()
-                AUROC_value += self.auroc(y_pred, y.long()).numpy(force=True)
+                #self.auroc.reset()
+                #AUROC_value += self.auroc(y_pred, y.long()).numpy(force=True)
             
             loss = loss_fn(y_pred, y, m)
             loss_v = loss.item()
@@ -186,8 +199,8 @@ class TrainNetwork:
                     "loss": epoch_loss / batch,
                     "diceScore": self.dice.compute().numpy(force=True),
                     "IoU": self.iou.compute().numpy(force=True),
-                    "AVG_P": AP_value / batch,
-                    "AUROC": AUROC_value / batch, 
+                    #"AVG_P": AP_value / batch,
+                    #"AUROC": AUROC_value / batch, 
                     'lr': self._optimizer.param_groups[0]['lr']
                 }
             )
@@ -198,8 +211,8 @@ class TrainNetwork:
         log_train["loss"].append(epoch_loss / batch)
         log_train["diceScore"].append(self.dice.compute().numpy(force=True))
         log_train["IoU"].append(self.iou.compute().numpy(force=True))
-        log_train["AVG_P"].append(AP_value / batch)
-        log_train["AUROC"].append(AUROC_value / batch)
+        #log_train["AVG_P"].append(AP_value / batch)
+        #log_train["AUROC"].append(AUROC_value / batch)
         log_train["lr"].append(self._optimizer.param_groups[0]['lr'])
         return log_train
 
@@ -231,13 +244,13 @@ class TrainNetwork:
 
         self.dice = self.dice.to(device)
         self.iou  = self.iou.to(device)
-        self.AP = self.AP.to(device)
-        self.auroc = self.auroc.to(device)
+        #self.AP = self.AP.to(device)
+        #self.auroc = self.auroc.to(device)
 
         self.dice.reset()
         self.iou.reset()
-        self.AP.reset()
-        self.auroc.reset()
+        #self.AP.reset()
+        #self.auroc.reset()
 
         AP_value = 0
         AUROC_value = 0
@@ -255,16 +268,20 @@ class TrainNetwork:
                 # print(f"label shape {y.shape}")
                 y_pred = model(x)
                 if isinstance(y_pred, OrderedDict):
-                    y_pred = y_pred["out"] 
+                    y_pred = y_pred["out"]
+                
+                y_pred = y_pred[:, self._index, :, :]
+                y = y[:, self._index, :, :]
+
                 y_classes = (torch.argmax(y_pred, dim=1) if self.encode == "index" else F.one_hot(torch.argmax(y_pred, dim=1), num_classes=y_pred.shape[1]).permute(0, 3, 1, 2))
                 self.dice.update(y_classes, y.long())
                 self.iou.update(y_classes, y.long())
 
-                self.AP.reset()
-                AP_value += self.AP(y_pred, y.long()).numpy(force=True).mean()
+                #self.AP.reset()
+                #AP_value += 0 #self.AP(y_pred, y.long()).numpy(force=True).mean()
 
-                self.auroc.reset()
-                AUROC_value += self.auroc(y_pred, y.long()).numpy(force=True)
+                #self.auroc.reset()
+                #AUROC_value += 0 #self.auroc(y_pred, y.long()).numpy(force=True)
 
                 loss = loss_fn(y_pred, y, m)
 
@@ -277,8 +294,8 @@ class TrainNetwork:
                         "loss": epoch_loss / batch,
                         "diceScore": self.dice.compute().numpy(force=True),
                         "IoU" : self.dice.compute().numpy(force=True),
-                        "AVG_P": AP_value / batch,
-                        "AUROC": AUROC_value / batch, 
+                        #"AVG_P": AP_value / batch,
+                        #"AUROC": AUROC_value / batch, 
                         
                     }
                 )
@@ -289,8 +306,8 @@ class TrainNetwork:
         log_eval["loss"].append(epoch_loss / batch)
         log_eval["diceScore"].append(self.dice.compute().numpy(force=True))
         log_eval["IoU"].append(self.iou.compute().numpy(force=True))
-        log_eval["AVG_P"].append(AP_value / batch)
-        log_eval["AUROC"].append(AUROC_value / batch)
+        #log_eval["AVG_P"].append(AP_value / batch)
+        #log_eval["AUROC"].append(AUROC_value / batch)
         log_eval["lr"].append(0)
 
         return log_eval
@@ -300,10 +317,6 @@ class TrainNetwork:
         train_set: Dataset,
         validation_set: Dataset,
         log_dir: Path | str,
-        risk: float,
-        loss_risk,
-        t: float = 0,
-        B: float = 1,
         epochs: int = 1,
         batch_size: int = 1,
         objective: str = "loss",
@@ -350,8 +363,8 @@ class TrainNetwork:
             "loss"     : [],
             "diceScore": [],
             "lr"       : [],
-            "AVG_P"    : [],
-            "AUROC"    : [],
+            #"AVG_P"    : [],
+            #"AUROC"    : [],
             "IoU"      : []
         }
 
@@ -360,8 +373,8 @@ class TrainNetwork:
             "loss"      : [],
             "diceScore" : [],
             "lr"        : [],
-            "AVG_P"    : [],
-            "AUROC"    : [],
+            #"AVG_P"    : [],
+            #"AUROC"    : [],
             "IoU"       : [] 
         }
 
@@ -415,6 +428,7 @@ class TrainNetwork:
                     y_pred = y_pred[:, :len(map_cls_to_color), :, :]    
                     y = y[:, :len(map_cls_to_color), :, :]
                     
+                    #y_pred = y_pred[:, self._index, :, :]
                     #print(y.shape)
 
                     # remove batchs
@@ -515,13 +529,14 @@ def image2BMap(map_, x, fill=0, add_map=None):
     #     mask[class_id][match] = 1
 
     label_map = np.full((h, w), fill_value=fill,  dtype=np.uint8)
-
+    
     for color, class_idx in map_.items():
         mask = np.all(x == color, axis=-1)
         label_map[mask] = class_idx
 
+    max_index = max(set(map_.values()))
     # One-hot encoding
-    mask = np.eye(len(set(map_.values())), dtype=np.uint8)[label_map]
+    mask = np.eye(max_index + 1 , dtype=np.uint8)[label_map]
     mask = mask.transpose((2,0,1))
     if add_map:
         layer = np.full((1, h, w), fill_value=fill, dtype=np.uint8)
@@ -571,10 +586,13 @@ def map2Image(map_, x) -> np.ndarray:
 
     return mask
     
-def compute_varisco_heatmap_rgb(uos_map: torch.Tensor) -> np.ndarray:
+def compute_varisco_heatmap_rgb(uos_map: np.ndarray|torch.Tensor) -> np.ndarray:
     """Normalizza la mappa UOS e restituisce una heatmap RGB."""
 
-    varisco_map = uos_map.squeeze(0).cpu().numpy()
+    if isinstance(uos_map, torch.Tensor):
+        uos_map = uos_map.squeeze(0).numpy(force=True)
+    
+    varisco_map = uos_map
 
     
     min_val, max_val = varisco_map.min(), varisco_map.max()
@@ -764,12 +782,77 @@ class AUROC_metric():
     def compute(self):
         return self.auroc_value/self.num_updates
 
-    
 
+def miscoverage_loss(Z_mask, Y_mask):
+    """
+    Calcola la miscoverage loss tra maschere multi-label binarie.
+
+    Args:
+        Z_mask (Tensor): maschera predetta [C, H, W] binaria (set predetto)
+        Y_mask (Tensor): maschera ground truth [C, H, W] binaria (set vero)
+
+    Returns:
+        float: miscoverage loss media (1 - coverage)
+    """
+    C, H, W = Z_mask.shape
+    coverage = torch.sum(Z_mask & Y_mask).float() / (H * W)
+    return 1.0 - coverage.item()
+
+def calibration2(Z, Y, alpha, B, loss_fn, verbose=False, num_points=5000):
+    """
+    Calibrazione post-hoc: cerca il più piccolo lambda_hat tale che:
+    (n/(n+1)) * R_n(lambda) + B/(n+1) <= alpha
     
+    Args:
+        Z (torch.Tensor): logits o score [B,C,H,W]
+        Y (torch.Tensor): label ground-truth [B,H,W]
+        alpha (float): livello di significatività (es. 0.01)
+        B (float): parametro conformale (es. quantile)
+        loss_fn (callable): funzione che calcola R_n(lambda)
+        verbose (bool): se True, stampa informazioni durante la ricerca
+        num_points (int): numero di punti nella griglia [0, 1]
+    
+    Returns:
+        float: lambda_hat ottimale
+    """
+    n = len(Z)
+    if n == 0:
+        if verbose:
+            print("⚠️ Calibrazione fallita: set di calibrazione vuoto.")
+        return 1.0
+
+    # Candidati λ ∈ [0, 1]
+    lambda_grid = np.linspace(0.0, 50.0, num_points)
+    
+    lambda_hat = 1.0  # fallback (più conservativo)
+    found = False
+    
+    for lam in lambda_grid:
+        R_n = empirical_risk(Z, Y, loss_fn, lam)
+        condition = (n / (n + 1)) * R_n + (B / (n + 1))
+
+        if verbose:
+            print(f"  Test lambda={lam:.4f}, R_n={R_n:.4f}, ValCond={condition:.4f}, Target α={alpha:.4f}")
+        
+        if condition <= alpha:
+            lambda_hat = lam
+            found = True
+            break  # abbiamo trovato l'infimo λ
+
+    if not found and verbose:
+        R_n_at_1 = loss_fn(Z, Y)
+        cond_at_1 = (n / (n + 1)) * R_n_at_1 + (B / (n + 1))
+        alpha_min_possible = B / (n + 1)
+        print(f"⚠️ Nessun lambda ha soddisfatto la condizione con α={alpha:.4f}")
+        print(f"  Condizione a lambda=1.0: {cond_at_1:.4f}")
+        print(f"  Minimo teorico raggiungibile: {alpha_min_possible:.4f}")
+        print(f"  Impostato lambda_hat = 1.0 (fallback conservativo)")
+
+    return lambda_hat
+
 
 # Conformal Semantic Image Segmentation: Post-hoc Quantification of Predictive Uncertainty
-def lasc(X, lamb): # or Least Ambiguous Set-Valued Classifiers (LAC)
+def lasc(Z, lamb): # or Least Ambiguous Set-Valued Classifiers (LAC)
     """ 
     Args:
 
@@ -779,66 +862,77 @@ def lasc(X, lamb): # or Least Ambiguous Set-Valued Classifiers (LAC)
     Return:
         multi-labeled masks
     """
-    assert  0 <= lamb <= 1.0
     
     # X:[B,C,H,W]
-    X = torch.permute(X, dims=(0,2,3,1)) # X:[B,H,W,C]
-    X = F.softmax(X, dim=-1) # pixel-wise softmax-scores
+    Z = torch.permute(Z, dims=(0,2,3,1)) # X:[B,H,W,C]
+    Z = F.softmax(Z, dim=-1) # pixel-wise softmax-scores
 
     #  fallback
 
-    _ , top1_indices = X.max(dim=-1) # top1_indices will be (B, H, W)
+    _ , top1_indices = Z.max(dim=-1) # top1_indices will be (B, H, W)
 
     # Create a tensor for the top-1 classes, initialized to zeros
     # This will be used to ensure at least one class is active for each pixel
     # Use torch.zeros_like for shape matching
-    #top1_mask_fill = torch.zeros_like(X).long()
+    top1_mask_fill = torch.zeros_like(Z, requires_grad=False).long()
 
     # Fill the top-1_mask_fill at the top-1 indices with 1s
     # Unsqueeze top1_indices to match dimensions for scatter_
     # top1_indices needs to be (B, H, W, 1) for scatter_
-    #top1_mask_fill.scatter_(dim=-1, index=top1_indices.unsqueeze(-1), value=1)
+    top1_mask_fill.scatter_(dim=-1, index=top1_indices.unsqueeze(-1), value=1)
     
     # Combine the thresholded mask with the top-1 fallback
     # For each pixel, if the thresholded mask is all zeros (empty),
     # then include the top-1 class.
     # This can be done by taking the element-wise OR (max) of the two masks.
     # If mask[b, h, w, k] is 1 OR top1_mask_fill[b, h, w, k] is 1, then the final mask element is 1.
-    mask = (X >= 1 - lamb).long()
+    mask = (Z >= 1 - lamb).long()
 
-    #final_mask = torch.max(mask, top1_mask_fill)
-    final_mask = torch.permute(mask, (0,3,1,2))
+    final_mask = torch.max(mask, top1_mask_fill)
+    final_mask = torch.permute(final_mask, (0,3,1,2))
 
     return final_mask
 
-def empirical_risk(X, Y, loss, lamb=0.95):
+
+
+
+
+def empirical_risk(Z, Y, loss, lamb):
+    # 0 1 2  3
     # X:[B,C,H,W]
     # Y:[B,C,H,W]
     # loss: f(cx, y) -> float
+    cx = lasc(Z, lamb)
     R = 0
-    n = X.shape[0]
-    for  x, y in zip(X, Y): # for i=1 to i=n
-        x = x.unsqueeze(0)
-        cx = lasc(x, lamb)
-        x = x.squeeze(0)
-        R += loss(cx, y)
+    n = Z.shape[0]
+
+    for  z, y in zip(cx, Y): # for i=1 to i=n
+        l =loss(z, y)
+        R += loss(z, y)
     
 
     return R/n
 
-def calibration(X, Y, B, alpha, loss_fn, max_steps=20, tol=1e-4):
+def calibration(X, Y, B, alpha, loss_fn):
     """
     Calibrazione di λ usando ricerca dicotomica.
     Trova il più piccolo λ tale che adjusted risk ≤ alpha.
     """
+    #print("Y_pred:", X.shape, X.min().item(), X.max().item())
+    #print("Y:", Y.shape, Y.sum().item(), Y.unique())
     n = X.shape[0]
     low, high = 0.0, 1.0
     best_lambda = 1.0  # fallback se nessun λ soddisfa la condizione
-
-    for step in range(max_steps):
+    iter = 0
+    while True:
+        if iter == 10:
+            break
         mid = (low + high) / 2.0
         Rhat = empirical_risk(X, Y, loss_fn, mid)
+        print(f"step{iter}: empirical risk: {Rhat}")
         adjusted_risk = (n / (n + 1)) * Rhat + B / (n + 1)
+        print(f"step{iter}: risk: {adjusted_risk}")
+        print(f"lamda{iter}: lambda {best_lambda}")
 
         
 
@@ -847,9 +941,8 @@ def calibration(X, Y, B, alpha, loss_fn, max_steps=20, tol=1e-4):
             high = mid  # cerca valori più piccoli (inf{λ})
         else:
             low = mid  # cerca valori più grandi
-        print(f"[step {step}] λ = {mid:.5f}, adjusted risk = {adjusted_risk:.5f} empirical risk {Rhat:.5f}")
-        if high - low < tol:
-            break
+        iter += 1
+    
 
     return best_lambda
 
@@ -859,49 +952,48 @@ def binary_loss(Z, Y):
     
     return int(torch.all(Z < Y))
 
-def binary_loss_threshold (Z, Y, t=0.1):
+def binary_loss_threshold (Z, Y, t=0.001):
     return int((torch.sum(Z*Y) / torch.sum(Y)) < t)
-
-def miscoverage_loss(Z, Y):
-    return 1 - (torch.sum(Z*Y) / torch.sum(Y))
     
-
-def uncertainty_heatmap(img, Y_pred, Y):
+def uncertainty_loss_simple(Y_pred, Y_true, delta=0.1):
     """
+    Penalizza le predizioni che escono da un intervallo Y_true ± delta
+    """
+    lower = Y_true - delta
+    upper = Y_true + delta
+    outside = ((Y_pred < lower) | (Y_pred > upper)).float()
+    return outside.mean()
+
+def img2UQH(img, Y_pred, lam):
+    """
+    Compute Uncertain Quantization Headmap (UQH)
         Y_pred :        [B, C, H, W]
         Y      : Tensor [B, C, H, W]
 
         
     """
-    lam = calibration(Y_pred, Y, 1, 0.12, miscoverage_loss)
-    lam = lam 
+    
+    # lam = calibration(Y_pred, Y, 1, 0.12, miscoverage_loss)
+    # lam = lam 
+    if len(Y_pred.shape) == 3:
+        
+        Y_pred = Y_pred[np.newaxis, :, :, :]
+    
+    Y_pred = torch.tensor(Y_pred, requires_grad=False)
     mask = lasc(Y_pred, lam) # [B, C, H, W]
-
-    mask = mask[10, :, :, :] # primo elemento del batch
-    img = img[10, :, :, :,]
-    img = img.numpy(force=True)
-
-    print(mask)
-    mask = mask.sum(dim=0, keepdim=True)
-    print(mask)
+    mask = mask.squeeze(0).numpy() # [C,H,W]
+    #print(mask[:, 0:10,:10])
+    mask = np.sum(mask, axis=0)
+    
     vh = compute_varisco_heatmap_rgb(mask)
-    print(vh.shape)
+    #print(vh.shape)
     
     hm = overlay_heatmap(np.transpose(img * 255, (1, 2, 0)), vh, 0.5)
 
-    plt.figure(figsize=(8, 4))
-    img = plt.imshow(hm)
-
-
-    plt.title("heatmap")
-    plt.axis('off')
-    plt.tight_layout()
-    plt.show()
+    return hm
 
 
 if __name__ == "__main__":
-    
-
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(device)
