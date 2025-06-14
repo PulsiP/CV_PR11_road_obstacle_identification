@@ -293,7 +293,7 @@ class TrainNetwork:
                         "batch": batch,
                         "loss": epoch_loss / batch,
                         "diceScore": self.dice.compute().numpy(force=True),
-                        "IoU" : self.dice.compute().numpy(force=True),
+                        "IoU" : self.iou.compute().numpy(force=True),
                         #"AVG_P": AP_value / batch,
                         #"AUROC": AUROC_value / batch, 
                         
@@ -822,7 +822,7 @@ def calibration2(Z, Y, alpha, B, loss_fn, verbose=False, num_points=5000):
         return 1.0
 
     # Candidati λ ∈ [0, 1]
-    lambda_grid = np.linspace(0.0, 50.0, num_points)
+    lambda_grid = np.linspace(0.0, 10.0, num_points)
     
     lambda_hat = 1.0  # fallback (più conservativo)
     found = False
@@ -913,7 +913,7 @@ def empirical_risk(Z, Y, loss, lamb):
 
     return R/n
 
-def calibration(X, Y, B, alpha, loss_fn):
+
     """
     Calibrazione di λ usando ricerca dicotomica.
     Trova il più piccolo λ tale che adjusted risk ≤ alpha.

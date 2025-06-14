@@ -69,13 +69,21 @@ match args.dataset:
         MASK_FN = ToBMask(MAP_COLOR2LABEL, fill=FILL, add_map=CS_PLUS)
         NUM_CLS = len(MAP_LABEL2COLOR) + 1
 
+    case "CSC512x192_OH":
+        ENCODE = "one-hot"
+        DATASET_NAME = "CSC192x512"
+        MAP_COLOR2LABEL = CS_COLOR2LABEL
+        MAP_LABEL2COLOR = CS_LABEL2COLOR
+        FILL = 0
+        MASK_FN = ToBMask(MAP_COLOR2LABEL, fill=FILL, add_map=CS_PLUS)
+        NUM_CLS = len(MAP_LABEL2COLOR) + 1
 
     case "LAF512x192_OH":
         ENCODE = "one-hot"
         DATASET_NAME = "LAF192x512"
         MAP_COLOR2LABEL = LAF_COLOR2LABEL
         MAP_LABEL2COLOR = LAF_LABEL2COLOR
-        KEEP_IDS = [1,8]
+        KEEP_IDS = [8]
         FILL = 0
         MASK_FN = ToBMask(MAP_COLOR2LABEL, fill=FILL, add_map=None)
         NUM_CLS = len(MAP_LABEL2COLOR)
@@ -168,13 +176,15 @@ match args.model:
             encoder_output_stride=8,
             decoder_atrous_rates = (6,12,18),
             activation=None,
-            decoder_aspp_dropout=0.3
+            encoder_depth=5,
+            decoder_channels=512,
+            decoder_aspp_dropout=0.60
         )
 
      
 
-        optim = torch.optim.SGD(
-            model.parameters(), lr=0.01, weight_decay=1e-4, momentum=0.9
+        optim = torch.optim.Adamax(
+            model.parameters(), lr=0.002, weight_decay=0.01 # 0.02 with Adamax.
         )
         
 
@@ -244,7 +254,7 @@ match args.benchmark:
 
         )
         
-        benchmark.run_benchmark(data_test, hyper_parameters["loss"], keep_index=list(LAF_LABEL2COLOR.keys()), format="one-hot", map_cls_to_color=MAP_LABEL2COLOR, device=DEVICE, repeat_for=1)
+        benchmark.run_benchmark(data_test, hyper_parameters["loss"], keep_index=list(LAF_LABEL2COLOR.keys()), format="one-hot", map_cls_to_color=MAP_LABEL2COLOR, device=DEVICE, repeat_for=5)
     case _:
         print("--benchmark not found--")
 

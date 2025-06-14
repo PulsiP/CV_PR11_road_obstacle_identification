@@ -23,7 +23,6 @@ from utils import (\
     uncertainty_loss_simple,
     unknownObjectnessScore,
     img2UQH,
-    calibration,
     miscoverage_loss
 )
 
