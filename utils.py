@@ -346,7 +346,7 @@ class TrainNetwork:
             batch_size=batch_size,
             shuffle=True,
             pin_memory=True,
-            num_workers=16,
+            num_workers=24,
             persistent_workers=True
             
         )
@@ -355,7 +355,7 @@ class TrainNetwork:
             batch_size=batch_size,
             shuffle=False,
             pin_memory=True,
-            num_workers=16,
+            num_workers=24,
             persistent_workers=True
         )
         log_train = {
@@ -798,7 +798,7 @@ def miscoverage_loss(Z_mask, Y_mask):
     coverage = torch.sum(Z_mask & Y_mask).float() / (H * W)
     return 1.0 - coverage.item()
 
-def calibration2(Z, Y, alpha, B, loss_fn, verbose=False, num_points=5000):
+def calibration2(Z, Y, alpha, B, loss_fn, verbose=True, num_points=5000):
     """
     Calibrazione post-hoc: cerca il più piccolo lambda_hat tale che:
     (n/(n+1)) * R_n(lambda) + B/(n+1) <= alpha

@@ -83,7 +83,7 @@ match args.dataset:
         DATASET_NAME = "LAF192x512"
         MAP_COLOR2LABEL = LAF_COLOR2LABEL
         MAP_LABEL2COLOR = LAF_LABEL2COLOR
-        KEEP_IDS = [8]
+        KEEP_IDS = [1,8]
         FILL = 0
         MASK_FN = ToBMask(MAP_COLOR2LABEL, fill=FILL, add_map=None)
         NUM_CLS = len(MAP_LABEL2COLOR)
@@ -174,17 +174,17 @@ match args.model:
             encoder_weights="imagenet",
             classes=NUM_CLS,
             encoder_output_stride=8,
-            decoder_atrous_rates = (6,12,18),
+            decoder_atrous_rates = (3,6,12),
             activation=None,
             encoder_depth=5,
             decoder_channels=512,
-            decoder_aspp_dropout=0.60
+            decoder_aspp_dropout=0.2 # 20.0
         )
 
      
 
-        optim = torch.optim.Adamax(
-            model.parameters(), lr=0.002, weight_decay=0.01 # 0.02 with Adamax.
+        optim = torch.optim.AdamW(
+            model.parameters(), lr=1e-4, weight_decay=1e-5 # 0.02 with Adamax.
         )
         
 
@@ -225,15 +225,17 @@ if train:
         batch_size=8,
         map_cls_to_color=MAP_LABEL2COLOR,
     )
-else:
-    m = model
 
-
-plot_report(
+    plot_report(
     log_file_train=args.log_dir + "/train.csv",
     log_file_valid=args.log_dir + "/eval.csv",
     out_dir=args.log_dir,
 )
+else:
+    m = model
+
+
+
 
 
 match args.benchmark:

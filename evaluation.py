@@ -54,15 +54,15 @@ class ObstacleBenchmark:
             
             dice = DiceScore(num_classes=len(keep_index), average="macro", input_format=format)
             iou  = MeanIoU(num_classes=len(keep_index), input_format=format, per_class=False)
-            #AP = MultilabelAveragePrecision(num_labels=len(keep_index), average="macro")
-            #auroc = MultilabelAUROC(num_labels=len(keep_index), average="macro")
+            ap = MultilabelAveragePrecision(num_labels=len(keep_index), average="macro")
+            auroc = MultilabelAUROC(num_labels=len(keep_index), average="macro")
             
             test_loader = DataLoader(
                 test_loader,
                 batch_size=32,
                 shuffle=True,
                 pin_memory=True,
-                num_workers=16,
+                num_workers=6,
                 persistent_workers=True
             
             )
@@ -73,8 +73,8 @@ class ObstacleBenchmark:
                 
                 "diceScore":    [],
                 "IoU":          [],
-                #"AVG_P":        [],
-                #"AUROC":        [],
+                "mAP":        [],
+                "AUROC":        [],
                 "epoch":        []
 
             }
@@ -100,17 +100,19 @@ class ObstacleBenchmark:
                     "lambda" : 0,
                     "dice_score": 0,
                     "IoU": 0,
+                    "mAP" : 0.0,
+                    "AUROC": 0.0
                     
                 }, refresh=True)
                 dice = dice.to(device)
                 iou  = iou.to(device)
-                #AP = AP.to(device)
-                #auroc = auroc.to(device)
+                ap = ap.to(device)
+                auroc = auroc.to(device)
 
                 dice.reset()
                 iou.reset()
-                #AP.reset()
-                #auroc.reset()
+                ap.reset()
+                auroc.reset()
 
                 for item in test_loader:
                     
@@ -144,23 +146,19 @@ class ObstacleBenchmark:
                         dice.update(y_classes, y.long())
                         iou.update(y_classes, y.long())
 
-                        #AP.update(y_pred, y.long())
-                        #auroc.update(y_pred, y.long())
+                        ap.update(y_pred, y.long())
+                        auroc.update(y_pred, y.long())
 
-                        lambda_ = calibration2(Y=y.long(), Z=y_pred, B=1, alpha=0.04, loss_fn=miscoverage_loss, verbose=False)
+                        lambda_ = calibration2(Y=y.long(), Z=y_pred, B=1, alpha=0.01, loss_fn=miscoverage_loss, verbose=False)
                         bar.set_postfix({
                             "lambda" : lambda_,
                             "dice_score": dice.compute().numpy(force=True),
                             "IoU": iou.compute().numpy(force=True),
+                            "mAP": ap.compute().numpy(force=True),
+                            "AUROC": auroc.compute().numpy(force=True)
                             
                         }, refresh=True)
                         
-                        # AP.reset()
-                        # AP_value += AP(y_pred, y.longx()).numpy(force=True).mean()
-
-                        # auroc.reset()
-                        # AUROC_value += auroc(y_pred, y.long()).numpy(force=True)
-
                         loss = loss_fn(y_pred, y, m)
 
                         loss_v = loss.item()
@@ -176,8 +174,8 @@ class ObstacleBenchmark:
                     #log_eval["loss"].append(epoch_loss / batch)
                     log_eval["diceScore"].append(dice.compute().numpy(force=True))
                     log_eval["IoU"].append(iou.compute().numpy(force=True))
-                    #log_eval["AVG_P"].append(AP.compute().numpy(force=True))
-                    #log_eval["AUROC"].append(auroc.compute().numpy(force=True)) # TODO: aggiornare
+                    log_eval["mAP"].append(ap.compute().numpy(force=True))
+                    log_eval["AUROC"].append(auroc.compute().numpy(force=True)) # TODO: aggiornare
                     log_eval["epoch"].append(epoch)               #  
 
                 if map_cls_to_color:
