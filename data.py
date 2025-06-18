@@ -21,18 +21,29 @@ from utils import improve_image
 
 class DatasetFactory:
     def __init__(self, out_dir: Path | str) -> None:
+        """
+        Initialize the DatasetFactory with an output directory.
+
+        Args:
+            out_dir (Path | str): Root path where the processed dataset will be saved.
+        """
         self.out_dir = Path(out_dir)
     
     def produce_Obs(
         self, src_img_dir: Path | str, src_label_dir: Path | str, split: Path | str
     , copy_size:tuple[int,int]|None = None) -> None:
         """
-        Costruisce un nuovo dataset a partire dalla struttura base del dataset Cityscape nella forma
+        Produce a reformatted LostAndFound dataset structure. The output will be structured as:
 
             datasetPath/
             ├── img/
             └── label/
 
+        Args:
+            src_img_dir (Path | str): Path to the original images directory.
+            src_label_dir (Path | str): Path to the original labels directory.
+            split (Path | str): Subdirectory name under `out_dir` (e.g., "train", "val").
+            copy_size (tuple[int, int], optional): If provided, resizes images and labels to this size.
         """
         src_img_dir = Path(src_img_dir)
         src_label_dir = Path(src_label_dir) 
@@ -128,9 +139,10 @@ class DatasetFactory:
 
 class CSDataset(Dataset):
     """
-    Classe per il caricamento del dataset **Cityscapes_kaggle** `valido`. Un dataset
-    è definito valido se risulta coerente con la seguente struttura:
+    Class for load dataset **Cityscapes** `in expected format`.
 
+    `Expected format`
+    
     datasetPath/
         ├── img/
         └── label/
@@ -144,10 +156,6 @@ class CSDataset(Dataset):
         mask_s: Tuple[int, int] = (2,2)
     ):
         """
-
-        Args:
-
-        ...
         """
         self.base_path = Path(dataset_path)
 
@@ -177,7 +185,7 @@ class CSDataset(Dataset):
         l = cv.Canny(y, 0.2,0.5)
         
         l = np.asarray(l == 255, dtype=np.uint8)
-        l = cv.dilate(l, np.ones(self.mask_s, np.uint8), iterations=2) 
+        l = cv.dilate(l, np.ones(self.mask_s, np.uint8), iterations=1) 
         
         
         
@@ -199,6 +207,9 @@ class CSDataset(Dataset):
 
 
 if __name__ == "__main__":
-    DatasetFactory("CSC192x512").produce_CS("Datasets/CSC/train/img", "Datasets/CSC/train/label", "train", copy_size=(512,192))
-    DatasetFactory("CSC192x512").produce_CS("Datasets/CSC/val/img", "Datasets/CSC/val/label", "val", copy_size=(512,192))
+    #DatasetFactory("CSF720x288").produce_CS("Datasets/CSF/train/img", "Datasets/CSF/train/label", "train", copy_size=(720,288))
+    #DatasetFactory("CSF720x288").produce_CS("Datasets/CSF/val/img", "Datasets/CSF/val/label", "val", copy_size=(720,288))
+    DatasetFactory("LAF720x288").produce_Obs("Datasets/LAF/train/img", "Datasets/LAF/train/label", "train", copy_size=(720,288))
+    DatasetFactory("LAF720x288").produce_Obs("Datasets/LAF/val/img", "Datasets/LAF/val/label", "val", copy_size=(720,288))
     
+

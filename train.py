@@ -3,7 +3,7 @@ import argparse
 import segmentation_models_pytorch as smp
 import torch
 from segmentation_models_pytorch.decoders.deeplabv3 import DeepLabV3Plus
-from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import StepLR, PolynomialLR
 from torchvision.transforms import v2
 from data import CSDataset
 from globals import *
@@ -13,7 +13,10 @@ from evaluation import ObstacleBenchmark
 from pathlib import Path
 parser = argparse.ArgumentParser(description="CLI")
 
-# 2. Aggiungi i parametri
+########################
+### Parameter parser ###
+########################
+
 parser.add_argument(
     "--epochs", type=int, default=10, help="Numero di epoche"
 )
@@ -57,6 +60,10 @@ if args.weights:
 
     
 KEEP_IDS = []
+
+#####################
+## Select Dataset ##
+####################
 match args.dataset:
 
 
@@ -68,6 +75,16 @@ match args.dataset:
         FILL = 0
         MASK_FN = ToBMask(MAP_COLOR2LABEL, fill=FILL, add_map=CS_PLUS)
         NUM_CLS = len(MAP_LABEL2COLOR) + 1
+    
+    case "CSF720x288_OH":
+        ENCODE = "one-hot"
+        DATASET_NAME = "CSF720x288"
+        MAP_COLOR2LABEL = CS_COLOR2LABEL
+        MAP_LABEL2COLOR = CS_LABEL2COLOR
+        FILL = 0
+        MASK_FN = ToBMask(MAP_COLOR2LABEL, fill=FILL, add_map=CS_PLUS)
+        NUM_CLS = len(MAP_LABEL2COLOR) + 1
+
 
     case "CSC512x192_OH":
         ENCODE = "one-hot"
@@ -83,7 +100,17 @@ match args.dataset:
         DATASET_NAME = "LAF192x512"
         MAP_COLOR2LABEL = LAF_COLOR2LABEL
         MAP_LABEL2COLOR = LAF_LABEL2COLOR
-        KEEP_IDS = [1,8]
+        #KEEP_IDS = [8]
+        FILL = 0
+        MASK_FN = ToBMask(MAP_COLOR2LABEL, fill=FILL, add_map=None)
+        NUM_CLS = len(MAP_LABEL2COLOR)
+    
+    case "LAF720x288_OH":
+        ENCODE = "one-hot"
+        DATASET_NAME = "LAF720x288"
+        MAP_COLOR2LABEL = LAF_COLOR2LABEL
+        MAP_LABEL2COLOR = LAF_LABEL2COLOR
+        KEEP_IDS = [8]
         FILL = 0
         MASK_FN = ToBMask(MAP_COLOR2LABEL, fill=FILL, add_map=None)
         NUM_CLS = len(MAP_LABEL2COLOR)
@@ -112,6 +139,10 @@ if args.classes:
 
 scheduler = None
 
+##################
+## Select model ##
+##################
+
 match args.model:
     case "FCN":
 
@@ -124,67 +155,44 @@ match args.model:
         }
 
         trainer = TrainNetwork(hyper_parameters, model)
-    case "DeepLab":
-        # Advanced Encoder-decoder newtwork for segmentation tasck
-        model = DeepLabV3Plus(
-            encoder_name="resnet50",  # backbone
-            encoder_weights="imagenet",  # pre-trained
-            in_channels=3,  # in-channels
-            classes=NUM_CLS,  # num of classes
-            decoder_aspp_dropout=0.3,  # decoder dropout
-            # activation="sigmoid"            # activation header
-        )
 
-        # Disable encoder tunning
-        for encoder_layer in model.encoder.parameters():
-            encoder_layer.requires_grad = False
-
-        # Set optimizer
-        optim = torch.optim.AdamW(model.parameters())
-
-        # Define base Hyper-parameters
-        hyper_parameters = {
-            "loss": smp.losses.LovaszLoss(mode="multiclass"),
-            "optimizer": optim,
-        }
-
-        # Add lr scheduler if needs
-        scheduler = StepLR(optimizer=optim, step_size=6, gamma=0.1)
-
-    case "Unet++":
-        model = smp.UnetPlusPlus(
-            encoder_name="resnet152",
-            classes=NUM_CLS,
-            encoder_depth=3,
-            decoder_channels=(256, 128, 64),
-            activation="sigmoid",
-        )
-        optim = torch.optim.Adam(model.parameters())
-        hyper_parameters = {
-            "loss": smp.losses.DiceLoss(mode="multiclass"),
-            "optimizer": optim,
-        }
-        scheduler = StepLR(optimizer=optim, step_size=10, gamma=0.1)
-
-    case "MyNetwork":
-
-        
-        model = smp.DeepLabV3Plus(
-            encoder_name="resnet101",
+    case "Unet":
+        model = smp.Unet(
+            encoder_name="resnet50",
             encoder_weights="imagenet",
             classes=NUM_CLS,
-            encoder_output_stride=8,
+            activation=None,
+            encoder_depth=5,
+           
+        )
+
+        optim = torch.optim.SGD(
+            model.parameters(), lr=0.01, weight_decay=1e-4, momentum=0.9 # 0.02 with Adamax.
+        )
+
+        hyper_parameters = {
+            "loss": BoundaryAwareBCE(lambda_w=3.0),
+            "optimizer": optim,
+        }
+        scheduler = PolynomialLR(optimizer=optim, power=0.9, total_iters=args.epochs)
+
+    case "DeepLab": 
+        model = smp.DeepLabV3Plus(
+            encoder_name="resnet50",
+            encoder_weights="imagenet",
+            classes=NUM_CLS,
+            encoder_output_stride=16,
             decoder_atrous_rates = (3,6,12),
             activation=None,
             encoder_depth=5,
-            decoder_channels=512,
-            decoder_aspp_dropout=0.2 # 20.0
+            decoder_channels=64,
+            decoder_aspp_dropout=0.3 # 20.0
         )
 
      
 
-        optim = torch.optim.AdamW(
-            model.parameters(), lr=1e-4, weight_decay=1e-5 # 0.02 with Adamax.
+        optim = torch.optim.SGD(
+            model.parameters(), lr=0.01, weight_decay=1e-4, momentum=0.9 # 0.02 with Adamax.
         )
         
 
@@ -192,7 +200,7 @@ match args.model:
             "loss": BoundaryAwareBCE(lambda_w=3.0),
             "optimizer": optim,
         }
-        # scheduler = PolynomialLR(optimizer=optim, power=0.9, total_iters=args.epochs)
+        scheduler = PolynomialLR(optimizer=optim, power=0.9, total_iters=args.epochs)
 
     case _:
         raise ValueError("Network not found")
@@ -201,12 +209,16 @@ match args.model:
 if args.weights:
     try:
         weights = torch.load(w, weights_only=True)
-        model.load_state_dict(weights, strict=True)
+        model.load_state_dict(weights, strict=False)
 
     except RuntimeError as err:
         print("weights not compatible with selected network")
         print(err)
         exit(-1) 
+
+####################
+## Train and Test ##
+####################
 
 trainer = TrainNetwork(
     hyper_parameters,
@@ -222,7 +234,9 @@ if train:
         validation_set=data_test,
         log_dir=args.log_dir,
         epochs=args.epochs,
-        batch_size=8,
+        batch_size=16,
+        massimize=False,
+        objective="loss",
         map_cls_to_color=MAP_LABEL2COLOR,
     )
 
@@ -235,14 +249,15 @@ else:
     m = model
 
 
-
-
+###############
+## Benchmark ##
+###############
 
 match args.benchmark:
     case "Obstacles":
         benchmark = ObstacleBenchmark(network=m, log_dir=args.log_dir)
         ENCODE = "one-hot"
-        DATASET_NAME = "LAF192x512"
+        DATASET_NAME = "LAF720x288"
         MAP_COLOR2LABEL = LAF_COLOR2LABEL
         MAP_LABEL2COLOR = LAF_LABEL2COLOR
         FILL = 0
@@ -256,7 +271,7 @@ match args.benchmark:
 
         )
         
-        benchmark.run_benchmark(data_test, hyper_parameters["loss"], keep_index=list(LAF_LABEL2COLOR.keys()), format="one-hot", map_cls_to_color=MAP_LABEL2COLOR, device=DEVICE, repeat_for=5)
+        benchmark.run_benchmark(data_test, hyper_parameters["loss"], keep_index=[8], format="one-hot", map_cls_to_color=MAP_LABEL2COLOR, device=DEVICE, repeat_for=3)
     case _:
         print("--benchmark not found--")
 

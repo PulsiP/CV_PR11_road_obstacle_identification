@@ -20,22 +20,13 @@ from torch import nn
 from torch.nn import functional as F
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader, Dataset
-from torch.utils.data import Subset
 from torchmetrics.segmentation import DiceScore, MeanIoU
-from random import shuffle
-# AUROC Metrics
-from torchmetrics.classification import MultilabelAUROC
 from torchmetrics.functional.classification import auroc
-
-#AP
-from torchmetrics.classification import MultilabelAveragePrecision
-
-
 from tqdm.auto import tqdm
 
 class ToMask(nn.Module):
     """
-    Class use to preprocess RGB-Mask for segmentation tasck
+    Class use to preprocess RGB-Mask for segmentation task
     """
     def __init__(self, map_, size = None, fill = 0):
         super().__init__()
@@ -47,8 +38,8 @@ class ToMask(nn.Module):
     @override
     def forward(self, x):
         """
-        Converte immagine RGB [H, W, 3] in maschera [1, H, W] con classi numeriche.
-        Pixel con colori non riconosciuti vengono assegnati a classe 0 (fallback).
+        Convert RGB image [H, W, 3] to mask [1, H, W] in numeric classes.
+        Pixel with unknown colors are assigned to class 0 (fallback)
         """
         if self.size:
             x = cv.resize(x, dsize=self.size)
@@ -61,8 +52,8 @@ class ToMask(nn.Module):
 
 class ToBMask(nn.Module):
     """
-    Class use to preprocess RGB-Mask for segmentation tasck and produce
-    One-hot-encoded masck given map definition that map color in specific
+    Class use to preprocess RGB-Mask for segmentation task and produce
+    one-hot encoded mask given a dictionary that map color in specific
     one-hot layer.
     """
     def __init__(self, map_, size = None, fill = 0, add_map = None):
@@ -77,7 +68,7 @@ class ToBMask(nn.Module):
     @override
     def forward(self, x):
         """
-        Converte immagine RGB [H, W, 3] in maschera [C, H, W] codificata in one-hot encoding (con C numero di valori one-hot).
+        Convert RGB image [H, W, 3] to mask [C, H, W] encoded in one-hot (C is the number of one-hot value)
         """
         if self.size:
             x = cv.resize(x, dsize=self.size)
@@ -90,14 +81,12 @@ class ToBMask(nn.Module):
 
 class TrainNetwork:
     """
-    Classe specializzata nell'effettuare l'attività di traning per la rete proposta. Tutti i modelli conformi alle specifiche di rete
-    in questo progetto possono utilizzare la classe per effettuare il traning e valutazione contemporaneo del modello secondo i criteri
-    configurati
+    Class for traning generic network in segmentation task and Unknown Object Detection through Unknown Objectness Score (UOS)
     """
 
     def __init__(self, hp: dict[str, Any], model: nn.Module, dice_num_classes:int=21, keep_index:List[int] = [], lr_scheduler = None, encode = "index") -> None:
         """
-        Inizializza il trainer
+        Init trainer 
         """
         self._model: nn.Module = model
         if keep_index:
@@ -134,21 +123,14 @@ class TrainNetwork:
 
         self.dice = self.dice.to(device)
         self.iou  = self.iou.to(device)
-        #self.AP = self.AP.to(device)
-        #self.auroc = self.auroc.to(device)
 
         self.dice.reset()
         self.iou.reset()
-        #self.AP.reset()
-        #self.auroc.reset()
-
-        
-        AP_value = 0
-        AUROC_value = 0
 
         for x, y, m in dataloader_train:
             bar.set_description(f"training epoch: {epoch}", refresh=True)
 
+            # predict
             x = x.to(device)
             y = y.squeeze(1).to(device)
             m = m.to(device)
@@ -167,24 +149,12 @@ class TrainNetwork:
             y_pred = y_pred[:, self._index, :, :]
             y = y[:, self._index, :, :]
 
-            #
-            #print(f"x shape: {x.shape}")
-            #print(f"y shape: {y.shape}")
-            #print(f"y_pred shape: {y_pred.shape}")
+            # compute loss
             with torch.no_grad():
                 y_classes = (torch.argmax(y_pred, dim=1) if self.encode == "index" else F.one_hot(torch.argmax(y_pred, dim=1), num_classes=y_pred.shape[1]).permute(0, 3, 1, 2))
-                #print(f"x shape: {x.shape}")
-                #print(f"y shape: {y.shape}")
-                #print(f"y_pred shape: {y_pred.shape}")
 
                 self.dice.update(y_classes, y.long())
                 self.iou.update(y_classes, y.long())
-
-                #self.AP.reset()
-                #AP_value += self.AP(y_pred, y.long()).numpy(force=True).mean()
-
-                #self.auroc.reset()
-                #AUROC_value += self.auroc(y_pred, y.long()).numpy(force=True)
             
             loss = loss_fn(y_pred, y, m)
             loss_v = loss.item()
@@ -193,26 +163,25 @@ class TrainNetwork:
 
             self._optimizer.step()
 
+            # record metrics
+
             bar.set_postfix(
                 {
                     "batch": batch,
                     "loss": epoch_loss / batch,
                     "diceScore": self.dice.compute().numpy(force=True),
                     "IoU": self.iou.compute().numpy(force=True),
-                    #"AVG_P": AP_value / batch,
-                    #"AUROC": AUROC_value / batch, 
                     'lr': self._optimizer.param_groups[0]['lr']
                 }
             )
             bar.update(batch_len)
 
+        # set log information (for epoch)
         bar.close()
         log_train["epoch"].append(epoch)
         log_train["loss"].append(epoch_loss / batch)
         log_train["diceScore"].append(self.dice.compute().numpy(force=True))
         log_train["IoU"].append(self.iou.compute().numpy(force=True))
-        #log_train["AVG_P"].append(AP_value / batch)
-        #log_train["AUROC"].append(AUROC_value / batch)
         log_train["lr"].append(self._optimizer.param_groups[0]['lr'])
         return log_train
 
@@ -236,24 +205,15 @@ class TrainNetwork:
                 "batch": 0,
                 "loss": 0,
                 "diceScore": 0.0,
-                "IoU": 0.0,
-                "AVG_P": 0.0,
                 "AUROC": 0.0
             }
         )
 
         self.dice = self.dice.to(device)
         self.iou  = self.iou.to(device)
-        #self.AP = self.AP.to(device)
-        #self.auroc = self.auroc.to(device)
-
         self.dice.reset()
         self.iou.reset()
-        #self.AP.reset()
-        #self.auroc.reset()
 
-        AP_value = 0
-        AUROC_value = 0
         for x, y, m in dataloader_val:
 
             with torch.no_grad():
@@ -276,12 +236,6 @@ class TrainNetwork:
                 y_classes = (torch.argmax(y_pred, dim=1) if self.encode == "index" else F.one_hot(torch.argmax(y_pred, dim=1), num_classes=y_pred.shape[1]).permute(0, 3, 1, 2))
                 self.dice.update(y_classes, y.long())
                 self.iou.update(y_classes, y.long())
-
-                #self.AP.reset()
-                #AP_value += 0 #self.AP(y_pred, y.long()).numpy(force=True).mean()
-
-                #self.auroc.reset()
-                #AUROC_value += 0 #self.auroc(y_pred, y.long()).numpy(force=True)
 
                 loss = loss_fn(y_pred, y, m)
 
@@ -306,8 +260,6 @@ class TrainNetwork:
         log_eval["loss"].append(epoch_loss / batch)
         log_eval["diceScore"].append(self.dice.compute().numpy(force=True))
         log_eval["IoU"].append(self.iou.compute().numpy(force=True))
-        #log_eval["AVG_P"].append(AP_value / batch)
-        #log_eval["AUROC"].append(AUROC_value / batch)
         log_eval["lr"].append(0)
 
         return log_eval
@@ -324,9 +276,31 @@ class TrainNetwork:
         map_cls_to_color = None,
     ) -> tuple[nn.Module, dict[str, list[float]], dict[str, list[float]]]:
         """
-        Train method, effettua il traning della rete specificata utilizzando come datasets di train e validazione quelli specificati.
-        La funzione supporta un semplice metodo automatico di loging
+        Traning `model` for n `epochs` given traning and testing `datasets` then return log file and weights
         Args:
+            traning_set(Dataset):
+                Dataset using for traning procedure
+            
+            validation_set(Datase):
+                Dataset using for validation procedure during the traning
+            
+            log_dir(Path):
+                Default directory for loggin information (qualitative analysis and metrics report)
+            
+            epochs(int):
+                Number traning epochs, default 1 epoch
+            
+            batch_size(int):
+                Number of elements for batch, default 1 element
+            
+            objective(str):
+                Values used for monitoring the model during traning
+            
+            massimize(bool):
+                Massimize/Minimize objective value
+            
+            map_cls_to_color(dict[int, tuple[int, int, int]):
+                Map predicted value in RGB space for visualization purposes
 
         """
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -363,8 +337,6 @@ class TrainNetwork:
             "loss"     : [],
             "diceScore": [],
             "lr"       : [],
-            #"AVG_P"    : [],
-            #"AUROC"    : [],
             "IoU"      : []
         }
 
@@ -373,8 +345,6 @@ class TrainNetwork:
             "loss"      : [],
             "diceScore" : [],
             "lr"        : [],
-            #"AVG_P"    : [],
-            #"AUROC"    : [],
             "IoU"       : [] 
         }
 
@@ -393,10 +363,10 @@ class TrainNetwork:
             # save best weigths in agreement with objective value
             if len(log_eval["epoch"]) < 2 or (
                 (
-                    massimize and log_eval[objective][-1] > log_eval[objective][-2]
+                    massimize and log_eval[objective][-1] >= max(log_eval[objective])
                 )  # if objective will be massimize(>) get the best weights that massimize it
                 or (
-                    not massimize and log_eval[objective][-1] < log_eval[objective][-2]
+                    not massimize and log_eval[objective][-1] <= min(log_eval[objective])
                 )  # if objective will be minimize(<) get  save the best weigths  that minimize it
             ):
                 if old_weights:  # old only the best weigths
@@ -462,13 +432,7 @@ class TrainNetwork:
 
                     plt.imsave(f"{log_dir}/heatmap_epoch_{epoch}.png", varisco_heatmap)
                     plt.imsave(f"{log_dir}/heatmap_overlay_epoch_{epoch}.png", overlay)
-           
-        ############################################################################################
-        # Conformal Semantic Image Segmentation: Post-hoc Quantification of Predictive Uncertainty #
-        ############################################################################################
-        #calibration_set = DataLoader(Subset(validation_set, np.random.randint(0, len(validation_set), size=int(len(validation_set)//0.05) )))
 
-        #print(calibration_set)
         ###########
         # Logging #
         ###########
@@ -487,22 +451,21 @@ class TrainNetwork:
 
 
 def show_tensor(tensor: torch.Tensor, cmap: str = "gray") -> None:
-    """ get Image-Tensor ans show it"""
+    """ Get and show Image-Tensor"""
     t = tensor.numpy(force=True).transpose((1, 2, 0))
     plt.imshow(t, cmap=cmap)
     plt.show()
 
 
-def image2Map(map_, x, fill=0):
+def image2Map(map_, x, fill=0) -> np.ndarray:
     """
-    Convert RGB Image in Quantizited Image using Quantization Table `map_`
-    Unquantizited values will map with 0 (unknow by default)
+    Convert RGB Image in quantized Image using Quantization Table `map_`
+    Unquantized values are mapped to 0 (unknown by default)
     """
     h, w, _ = x.shape
     mask = np.full((h, w), fill_value=fill, dtype=np.uint8)
 
     for color, class_id in map_.items():
-        #print(f"  {color} → {class_id}")
         match = np.all(x == color, axis=-1)
         mask[match] = class_id
 
@@ -510,24 +473,8 @@ def image2Map(map_, x, fill=0):
 
 # from RGB color to layers (indexed using TrainId)
 def image2BMap(map_, x, fill=0, add_map=None):
+    """Converts an RGB label image into a one-hot encoded mask using a color-to-class mapping."""
     h, w, _ = x.shape
-
-    
-
-    # # Converti ogni riga in una tupla RGB standard
-    # colors = [tuple(map(int, color)) for color in np.unique(x.reshape(-1, 3), axis=0)]
-    # mask = np.full((len(set(map_.values())), h, w), fill_value=fill, dtype=np.uint8)
-    # for color, class_id in map_.items():
-        
-    #     #print(f"  {color} → {class_id}")
-        
-    #     match = np.all(x == color, axis=-1)
-        
-    #     #if match.sum() == 0: print(color)
-    #     #print(f"{color} -> {match.sum()}")
-        
-    #     mask[class_id][match] = 1
-
     label_map = np.full((h, w), fill_value=fill,  dtype=np.uint8)
     
     for color, class_idx in map_.items():
@@ -542,30 +489,31 @@ def image2BMap(map_, x, fill=0, add_map=None):
         layer = np.full((1, h, w), fill_value=fill, dtype=np.uint8)
         for color, _ in add_map.items():
            
-            #print(f"  {color} → {class_id}")
             match = np.all(x == color, axis=-1)
             layer[0][match] = 1
         mask = np.concatenate((mask, layer), axis=0)
-    
-    #i = randint(0, 100)
-    #j = randint(0, 100)
-
-    #print(mask[:, i, j])
-    #print(x[i, j, :])
 
     return mask
 
     
 
 # from layer to RGB color
-def bmap2Image(map_, x, fill=0):
-    
+def bmap2Image(map_:np.ndarray, x:dict, fill:int=0):
+    """
+    Convert a one-hot mask into an RGB image via a color map.
+
+    Args:
+        map_ (dict[int, tuple[int,int,int]]): class -> RGB mapping.
+        x (np.ndarray): shape (H, W) of class IDs.
+        fill (int): default RGB fill value.
+
+    Returns:
+        np.ndarray: RGB image of shape (H, W, 3).
+    """
     h, w = x.shape
     mask = np.full((h, w, 3), fill_value=fill, dtype=np.uint8)
 
     for class_id, color in map_.items():
-        #print(f" {class_id} -> {color}")
-        #print(f"  {color} → {class_id}")
         match = x == class_id
         mask[match] = color
     
@@ -573,40 +521,31 @@ def bmap2Image(map_, x, fill=0):
     
 
 def map2Image(map_, x) -> np.ndarray:
-    """ Map quantizited Image in RGB Image """
+    """ Map quantized Image in RGB Image """
     mask = np.full((x.shape[0], x.shape[1], 3), fill_value=0, dtype=np.uint8)
-    # print("Mappatura colore → class_id usata:")
 
     for class_id, color in map_.items():
-        #print(f" {class_id} -> {color}")
-        # print(f"  {color} → {class_id}")
-
         match = x == class_id
         mask[match] = color
 
     return mask
     
 def compute_varisco_heatmap_rgb(uos_map: np.ndarray|torch.Tensor) -> np.ndarray:
-    """Normalizza la mappa UOS e restituisce una heatmap RGB."""
-
+    """ Normalize a score map to [0,1] and apply a jet colormap. """
     if isinstance(uos_map, torch.Tensor):
         uos_map = uos_map.squeeze(0).numpy(force=True)
     
-    varisco_map = uos_map
-
-    
+    varisco_map = uos_map    
     min_val, max_val = varisco_map.min(), varisco_map.max()
     norm_map = (varisco_map - min_val) / (max_val - min_val + 1e-8)
     return (plt.cm.jet(norm_map)[:, :, :3] * 255).astype(np.uint8)
 
 
 def overlay_heatmap(img_rgb: np.ndarray, heatmap_rgb: np.ndarray, alpha: float = 0.5) -> np.ndarray:
-    """Restituisce l’overlay tra immagine RGB e heatmap."""
+    """ Blend a heatmap over an RGB image. """
     import cv2
     img_rgb = img_rgb.astype(np.uint8)
     heatmap_rgb = heatmap_rgb.astype(np.uint8)
-    #print(heatmap_rgb.shape)
-    #heatmap_resized = cv2.resize(heatmap_rgb, (img_rgb.shape[1], img_rgb.shape[0]))
     return cv2.addWeighted(img_rgb, 1 - alpha, heatmap_rgb, alpha, 0)
 
 def unknownObjectnessScore(pred: torch.Tensor) -> torch.Tensor:
@@ -615,9 +554,32 @@ def unknownObjectnessScore(pred: torch.Tensor) -> torch.Tensor:
         pred = pred.squeeze(0)  # [C, H, W]
 
     pred = F.sigmoid(pred)
+    
     classes = 1 - pred[:-1]           # [C-1, H, W]
     object_score = pred[-1:]         # [1, H, W]
     return torch.prod(classes, dim=0, keepdim=True)  * object_score  # [1, H, W]
+
+def unknownObjectnessScoreMB(pred: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the Unknown Objectness Score for a batch of predictions.
+
+    Args:
+        pred (Tensor): A tensor of shape [B, C, H, W], where C = number of classes including the 'unknown object' class (last one).
+
+    Returns:
+        Tensor: A tensor of shape [B, 1, H, W] containing the unknown objectness scores.
+    """
+    #assert pred.dim() == 4, "Expected input shape [B, C, H, W]"
+
+    pred = F.sigmoid(pred)  # Apply sigmoid to logits
+
+    classes = 1 - pred[:, :-1, :, :]        # All known classes: [B, C-1, H, W]
+    object_score = pred[:, -1:, :, :]       # Unknown object class score: [B, 1, H, W]
+
+    # Multiply the inverse of known class probabilities and scale by the unknown score
+    unknown_score = torch.prod(classes, dim=1, keepdim=True) * object_score  # [B, 1, H, W]
+
+    return unknown_score
 
 
 def ObjectnessScore(pred: torch.Tensor) -> torch.Tensor:
@@ -628,7 +590,16 @@ def ObjectnessScore(pred: torch.Tensor) -> torch.Tensor:
     object_score = pred[-1:]         
     return object_score  
 
-def improve_image(x):
+def improve_image(x:np.ndarray) -> np.ndarray:
+    """
+    Apply CLAHE on L channel in LAB color space to boost contrast.
+
+    Args:
+        x (H,W,3) RGB image.
+
+    Returns:
+        np.ndarray: contrast-enhanced RGB image.
+    """
     lab = cv.cvtColor(x, cv.COLOR_RGB2LAB)
     # Separare i canali
     l, a, b = cv.split(lab)
@@ -645,19 +616,19 @@ def improve_image(x):
 
 def resize(src_dir: Path | str, out_dir: Path | str, split: Path | str, size:tuple[int, int]|None = None) -> None:
         """
-            Ridimensiona il dataset fornito in "src_dir" fornito della struttura e lo salva in out_dir
+            Resize the dataset located in `src_dir`, which must have the following structure:
+
                 src_dir/
                 ├── img/
                 └── label/
-            
+
+            Save the resized images and labels to `out_dir`.
         """
         src_dir = Path(src_dir)
         out_dir = Path(out_dir)
         
-
         src_dir = src_dir.joinpath(split)
         out_dir = out_dir.joinpath(split)
-
 
         src_img_path =  src_dir.joinpath("img")
         src_label_path = src_dir.joinpath("label")
@@ -682,7 +653,8 @@ def resize(src_dir: Path | str, out_dir: Path | str, split: Path | str, size:tup
             image = cv.resize(image, size, interpolation=4)
             cv.imwrite(out_label_path.joinpath(file_.name), image)
 
-def plot_report(log_file_train:Path|str|pd.DataFrame, log_file_valid:Path|str|pd.DataFrame|None = None, out_dir:Path|str = "."):
+def plot_report(log_file_train:Path|str|pd.DataFrame, log_file_valid:Path|str|pd.DataFrame|None = None, out_dir:Path|str = ".") -> None:
+    """Generate training (and validation) metric plots and save them as PDF."""
     matplotlib.use("PDF")
     out_dir = Path(out_dir)
     os.makedirs(out_dir, exist_ok=True)
@@ -739,7 +711,11 @@ def plot_report(log_file_train:Path|str|pd.DataFrame, log_file_valid:Path|str|pd
 
     
 
-def getBCEmask(shape: Tuple[int, int, int, int], dim):
+def getBCEmask(shape: Tuple[int, int, int, int], dim:int) -> torch.Tensor:
+    """
+    Generate a binary mask with 1s along the border of each image in a batch.
+    Useful for applying BCE loss only near the edges for boundary-aware training.
+    """
     B, C, H, W = shape
 
 
@@ -754,13 +730,16 @@ def getBCEmask(shape: Tuple[int, int, int, int], dim):
 
 
 class AUROC_metric():
+    """
+    Class to compute and accumulate AUROC (Area Under ROC Curve) scores
+    across multiple batches for multi-class segmentation.
+    """
     def __init__(self, num_classes):
         self.__num_classes = num_classes
 
         self.auroc_value = 0.0
         self.num_updates = 0
-
-        
+      
     def update(self, preds, target):
         B, C, H, W = preds.shape
 
@@ -783,46 +762,45 @@ class AUROC_metric():
         return self.auroc_value/self.num_updates
 
 
-def miscoverage_loss(Z_mask, Y_mask):
+def miscoverage_loss(Z_mask:torch.Tensor, Y_mask:torch.Tensor) -> float:
     """
-    Calcola la miscoverage loss tra maschere multi-label binarie.
-
-    Args:
-        Z_mask (Tensor): maschera predetta [C, H, W] binaria (set predetto)
-        Y_mask (Tensor): maschera ground truth [C, H, W] binaria (set vero)
-
-    Returns:
-        float: miscoverage loss media (1 - coverage)
+    Compute the miscoverage loss between binary multi-label mask.
     """
-    C, H, W = Z_mask.shape
+    #print(Z_mask.shape)
+    
+    try:
+        C, H, W = Z_mask.shape
+    except Exception:
+        print(f"error {Z_mask.shape}")
+        return 1
+    
     coverage = torch.sum(Z_mask & Y_mask).float() / (H * W)
     return 1.0 - coverage.item()
 
-def calibration2(Z, Y, alpha, B, loss_fn, verbose=True, num_points=5000):
+def calibration2(Z:torch.Tensor, Y:torch.Tensor, alpha:float, B:float, loss_fn:Any, verbose:bool=True, num_points:int=5000) -> float:
     """
-    Calibrazione post-hoc: cerca il più piccolo lambda_hat tale che:
+    Post-hoc calibration: find the smallest lambda_hat such that:
     (n/(n+1)) * R_n(lambda) + B/(n+1) <= alpha
     
     Args:
-        Z (torch.Tensor): logits o score [B,C,H,W]
+        Z (torch.Tensor): logits or score [B,C,H,W]
         Y (torch.Tensor): label ground-truth [B,H,W]
-        alpha (float): livello di significatività (es. 0.01)
-        B (float): parametro conformale (es. quantile)
-        loss_fn (callable): funzione che calcola R_n(lambda)
-        verbose (bool): se True, stampa informazioni durante la ricerca
-        num_points (int): numero di punti nella griglia [0, 1]
+        alpha (float): significance level (es. 0.01)
+        B (float): conformal parameter (es. quantile)
+        loss_fn (callable): function to compute R_n(lambda)
+        num_points (int): number of points in the grid [0, 1]
     
     Returns:
-        float: lambda_hat ottimale
+        float: optimal lambda_hat 
     """
     n = len(Z)
     if n == 0:
         if verbose:
-            print("⚠️ Calibrazione fallita: set di calibrazione vuoto.")
+            print(" Calibration fail")
         return 1.0
 
     # Candidati λ ∈ [0, 1]
-    lambda_grid = np.linspace(0.0, 10.0, num_points)
+    lambda_grid = np.linspace(0., 1.0, num_points)
     
     lambda_hat = 1.0  # fallback (più conservativo)
     found = False
@@ -843,24 +821,18 @@ def calibration2(Z, Y, alpha, B, loss_fn, verbose=True, num_points=5000):
         R_n_at_1 = loss_fn(Z, Y)
         cond_at_1 = (n / (n + 1)) * R_n_at_1 + (B / (n + 1))
         alpha_min_possible = B / (n + 1)
-        print(f"⚠️ Nessun lambda ha soddisfatto la condizione con α={alpha:.4f}")
-        print(f"  Condizione a lambda=1.0: {cond_at_1:.4f}")
-        print(f"  Minimo teorico raggiungibile: {alpha_min_possible:.4f}")
-        print(f"  Impostato lambda_hat = 1.0 (fallback conservativo)")
+        print(f"  lambda not found,  α={alpha:.4f}")
+        print(f"  Min risk value: {alpha_min_possible:.4f}")
+        print(f"  set lambda= 1.0 (fallback)")
 
     return lambda_hat
 
 
 # Conformal Semantic Image Segmentation: Post-hoc Quantification of Predictive Uncertainty
-def lasc(Z, lamb): # or Least Ambiguous Set-Valued Classifiers (LAC)
-    """ 
-    Args:
-
-        X:
-        lamb: 
-    
-    Return:
-        multi-labeled masks
+def lasc(Z:torch.Tensor, lamb:float) -> torch.Tensor: # or Least Ambiguous Set-Valued Classifiers (LAC)
+    """
+    Least Ambiguous Set-valued Classifier (LASC):
+    Returns a binary mask with classes whose score >= 1 - lambda,
     """
     
     # X:[B,C,H,W]
@@ -897,7 +869,11 @@ def lasc(Z, lamb): # or Least Ambiguous Set-Valued Classifiers (LAC)
 
 
 
-def empirical_risk(Z, Y, loss, lamb):
+def empirical_risk(Z:torch.Tensor, Y:torch.Tensor, loss:Any, lamb:float) -> float:
+    """
+    Compute average empirical risk using a set-valued classifier (LASC)
+    with confidence level lambda.
+    """
     # 0 1 2  3
     # X:[B,C,H,W]
     # Y:[B,C,H,W]
@@ -907,74 +883,43 @@ def empirical_risk(Z, Y, loss, lamb):
     n = Z.shape[0]
 
     for  z, y in zip(cx, Y): # for i=1 to i=n
-        l =loss(z, y)
         R += loss(z, y)
-    
 
     return R/n
 
 
+def binary_loss(Z:torch.Tensor, Y:torch.Tensor) -> float:
     """
-    Calibrazione di λ usando ricerca dicotomica.
-    Trova il più piccolo λ tale che adjusted risk ≤ alpha.
+    Return 1 if prediction misses any true class (Z < Y), else 0.
     """
-    #print("Y_pred:", X.shape, X.min().item(), X.max().item())
-    #print("Y:", Y.shape, Y.sum().item(), Y.unique())
-    n = X.shape[0]
-    low, high = 0.0, 1.0
-    best_lambda = 1.0  # fallback se nessun λ soddisfa la condizione
-    iter = 0
-    while True:
-        if iter == 10:
-            break
-        mid = (low + high) / 2.0
-        Rhat = empirical_risk(X, Y, loss_fn, mid)
-        print(f"step{iter}: empirical risk: {Rhat}")
-        adjusted_risk = (n / (n + 1)) * Rhat + B / (n + 1)
-        print(f"step{iter}: risk: {adjusted_risk}")
-        print(f"lamda{iter}: lambda {best_lambda}")
-
-        
-
-        if adjusted_risk <= alpha:
-            best_lambda = mid
-            high = mid  # cerca valori più piccoli (inf{λ})
-        else:
-            low = mid  # cerca valori più grandi
-        iter += 1
-    
-
-    return best_lambda
-
-def binary_loss(Z, Y):
     # Z: [C,H,W]
     # Y: [C,H,W]
     
     return int(torch.all(Z < Y))
 
-def binary_loss_threshold (Z, Y, t=0.001):
+def binary_loss_threshold (Z:torch.Tensor, Y:torch.Tensor, t:float=0.001) -> float:
+    """
+    Returns 1 if the overlap between prediction Z and ground truth Y is below threshold t, else 0.
+    """
     return int((torch.sum(Z*Y) / torch.sum(Y)) < t)
     
-def uncertainty_loss_simple(Y_pred, Y_true, delta=0.1):
+def uncertainty_loss_simple(Y_pred:torch.Tensor, Y_true:torch.Tensor, delta:float=0.1)-> float:
     """
-    Penalizza le predizioni che escono da un intervallo Y_true ± delta
+    Penalize predictions falling outside the interval [Y_true ± delta].
     """
     lower = Y_true - delta
     upper = Y_true + delta
     outside = ((Y_pred < lower) | (Y_pred > upper)).float()
     return outside.mean()
 
-def img2UQH(img, Y_pred, lam):
+def img2UQH(img:np.ndarray, Y_pred:torch.Tensor, lam:float) -> np.ndarray:
     """
-    Compute Uncertain Quantization Headmap (UQH)
+    Compute Uncertain Quantization Heatmap (UQH)
         Y_pred :        [B, C, H, W]
         Y      : Tensor [B, C, H, W]
-
         
     """
     
-    # lam = calibration(Y_pred, Y, 1, 0.12, miscoverage_loss)
-    # lam = lam 
     if len(Y_pred.shape) == 3:
         
         Y_pred = Y_pred[np.newaxis, :, :, :]
@@ -994,26 +939,7 @@ def img2UQH(img, Y_pred, lam):
 
 
 if __name__ == "__main__":
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(device)
-
-    preds = torch.rand(8, 9, 10, 10).to(device)
-    targets = torch.randint(0, 2, (8, 9, 10, 10)).to(device)
-
-    auroc = MultilabelAUROC(9)
-
-    auroc.update(preds, targets)
-    #res = compute_AUROC(preds, targets)
-
-    res = auroc.compute()
-
-
-    print(res.cpu().numpy())
-
-
-
-
+    pass
     #resize("./Dataset", "./Dataset256x96", "val", (256,96))
     #plot_report("./Sigmoid/train.csv", "./Sigmoid/eval.csv")
 
@@ -1085,10 +1011,3 @@ if __name__ == "__main__":
     # y_pred = y_pred.cpu()
 
     # uncertainty_heatmap(img, y_pred[:, :-1, :,:], y[:, :-1, :,:])
-    
-
-
-
-
-        
-
