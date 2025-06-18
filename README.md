@@ -20,7 +20,10 @@ Run this in your shell:
     pip3 install opencv-python
     pip3 install rich tqdm
 ```
-
+All dependencies can be installed with:
+```sh
+    bash install.sh
+```
 ## Run Experiments
 
 For train one model 
